@@ -61,9 +61,11 @@ def format_email_body(week_data, entry, today_name):
         "",
         f"READ: {entry['passage']}",
         "",
+        f"REFLECT ON THE MESSAGE: {entry['message_reflection']}",
+        "",
         f"TIES TO THE MEMORY VERSE: {entry['related_scripture']}",
         "",
-        f"REFLECT: {entry['reflection_question']}",
+        f"REFLECT ON THE VERSE: {entry['verse_reflection']}",
     ]
     return "\n".join(lines)
 

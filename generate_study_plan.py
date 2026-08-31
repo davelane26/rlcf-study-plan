@@ -225,7 +225,11 @@ by Saturday.
 The "focus" and "passage" for each day should be drawn straight from the
 actual content/themes/points of the sermon transcript above — keep these
 grounded in what was actually preached, not filtered through any
-particular teacher's style.
+particular teacher's style. The "message_reflection" for each day is a
+reflection question about that same sermon content/passage — stay
+strictly with what the sermon actually said, don't editorialize it
+through anyone else's teaching style, and don't attribute anything to the
+original speaker that they didn't say.
 
 Each day also needs a "related_scripture" pick: a DIFFERENT passage each
 day (don't repeat the same one twice across the week) that meaningfully
@@ -234,7 +238,7 @@ that uses similar language/imagery, or one that develops the same
 theological theme — not just a passage that's thematically close to the
 sermon in general.
 
-For the "reflection_question" specifically: write it about the memory
+For the "verse_reflection" specifically: write it about the memory
 verse and that day's related_scripture (not the sermon topic), through
 the lens of Zac Poonen's (Christian Fellowship Church, Bangalore)
 teaching emphasis — practical, victorious Christian living; real freedom
@@ -242,7 +246,9 @@ from the power of sin (not just forgiveness of it); radical self-denial;
 walking in the fear of God; and the Holy Spirit's indwelling as the means
 of actually being transformed in everyday attitudes and choices, not just
 correct doctrine or a warm feeling. Push toward honest, specific
-self-examination rather than staying abstract.
+self-examination rather than staying abstract. This is a separate voice
+from message_reflection above and should never be presented as the
+sermon speaker's own words.
 
 Respond with ONLY a JSON array (no other text, no markdown fences), with
 exactly 6 objects in this shape:
@@ -252,8 +258,9 @@ exactly 6 objects in this shape:
     "day": "Monday",
     "focus": "short theme/title for the day",
     "passage": "specific Bible passage to read, tied to the sermon's themes",
+    "message_reflection": "one reflection question about the sermon content itself, staying true to what was actually preached",
     "related_scripture": "a passage that ties into the memory verse (see instructions above), different each day",
-    "reflection_question": "one reflection question"
+    "verse_reflection": "one reflection question about the memory verse, in Zac Poonen's teaching voice (see instructions above)"
   }},
   ... (5 more, one per remaining day)
 ]
