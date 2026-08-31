@@ -11,6 +11,9 @@ generate_study_plan.py runs to build the upcoming week's plan.
 
 Environment variables required (email delivery):
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO, EMAIL_FROM
+
+Optional (also posts to Slack alongside the email):
+  SLACK_WEBHOOK_URL
 """
 
 import os
@@ -20,6 +23,8 @@ import glob
 import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
+
+import requests
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
@@ -70,6 +75,35 @@ def format_email_body(week_data, entry, today_name):
     return "\n".join(lines)
 
 
+def format_slack_message(week_data, entry, today_name):
+    """Same content as the email, using Slack's mrkdwn bold syntax for headers."""
+    lines = [
+        f"*{today_name}'s Bible Study*",
+        f"_This week's memory verse:_ {week_data['memory_verse']}",
+        f"_From Sunday's message:_ {week_data['sermon_title']}",
+        "",
+        f"*FOCUS:* {entry['focus']}",
+        f"*READ:* {'; '.join(entry['passages'])}",
+        f"*REFLECT ON THE MESSAGE:* {entry['message_reflection']}",
+        f"*TIES TO THE MEMORY VERSE:* {entry['related_scripture']}",
+        f"*REFLECT ON THE VERSE:* {entry['verse_reflection']}",
+    ]
+    return "\n".join(lines)
+
+
+def send_slack(text):
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not webhook_url:
+        print("SLACK_WEBHOOK_URL not set — skipping Slack delivery.")
+        return
+
+    resp = requests.post(webhook_url, json={"text": text}, timeout=20)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Slack webhook returned {resp.status_code}: {resp.text}")
+
+    print("Posted today's portion to Slack")
+
+
 def send_email(subject, body):
     required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "EMAIL_TO", "EMAIL_FROM"]
     if not all(os.environ.get(v) for v in required):
@@ -106,6 +140,9 @@ def main():
     body = format_email_body(week_data, entry, today_name)
     subject = f"Bible Study — {today_name}: {entry['focus']}"
     send_email(subject, body)
+
+    slack_text = format_slack_message(week_data, entry, today_name)
+    send_slack(slack_text)
 
 
 if __name__ == "__main__":

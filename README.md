@@ -71,6 +71,12 @@ Without SMTP secrets set, `send_daily_portion.py` will just print that
 day's portion to the workflow log instead of emailing it — useful for
 testing, but you'll want SMTP configured for real hands-off delivery.
 
+Optional, in addition to email:
+- `SLACK_WEBHOOK_URL` — an Incoming Webhook URL from a Slack app
+  (api.slack.com → your app → Incoming Webhooks). Posts the same daily
+  portion to a Slack channel alongside the email. Skipped silently if
+  not set.
+
 ### 4. Confirm the schedules
 - **Generation** (`weekly-study-plan.yml`) runs 10:00 PM Mountain Time
   Sundays, after the sermon has posted.
