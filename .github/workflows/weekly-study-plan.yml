@@ -24,8 +24,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Write YouTube cookies file
-        if: ${{ secrets.YOUTUBE_COOKIES != '' }}
-        run: echo "${{ secrets.YOUTUBE_COOKIES }}" > youtube_cookies.txt
+        env:
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: printf '%s\n' "$YOUTUBE_COOKIES" > youtube_cookies.txt
 
       - name: Generate this week's Monday-Saturday plan
         env:

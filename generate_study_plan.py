@@ -141,7 +141,7 @@ def get_transcript(video_id):
     # authenticates with real browser cookies. If YOUTUBE_COOKIES_FILE points
     # at a cookies.txt (Netscape format), use it.
     cookies_file = os.environ.get("YOUTUBE_COOKIES_FILE")
-    if cookies_file and os.path.exists(cookies_file):
+    if cookies_file and os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0:
         cmd += ["--cookies", cookies_file]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
