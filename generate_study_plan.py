@@ -36,11 +36,24 @@ from bs4 import BeautifulSoup
 CHURCH_HOME_URL = "https://rlcf.church/"
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
+# Some CDNs/WAFs treat the default python-requests UA + datacenter IPs
+# (like GitHub Actions runners) differently than a normal browser request.
+# Send a real browser UA on every request to this site to avoid getting
+# an unexpected/blocked response.
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
 
 def get_memory_verse():
     """Scrape the current 'Adult / Junior' weekly memory verse from rlcf.church."""
-    resp = requests.get(CHURCH_HOME_URL, timeout=20)
+    resp = requests.get(CHURCH_HOME_URL, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
+    print(f"  (fetched {CHURCH_HOME_URL}: status {resp.status_code}, "
+          f"{len(resp.text)} chars)")
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # Memory verses are rendered as <img alt="..."> with the verse text
@@ -54,7 +67,10 @@ def get_memory_verse():
             candidates.append((img, alt))
 
     if not candidates:
-        raise RuntimeError("Could not find any memory verse images on rlcf.church")
+        raise RuntimeError(
+            f"Could not find any memory verse images on rlcf.church "
+            f"(fetched {len(imgs)} img[alt] tags total, status {resp.status_code})"
+        )
 
     # The first candidate on the page is the "Adult / Junior" verse.
     verse_text = candidates[0][1].strip()
@@ -63,7 +79,7 @@ def get_memory_verse():
 
 def get_latest_sermon():
     """Find the most recent sermon title, URL, speaker, and date from the homepage."""
-    resp = requests.get(CHURCH_HOME_URL, timeout=20)
+    resp = requests.get(CHURCH_HOME_URL, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -82,7 +98,7 @@ def get_latest_sermon():
 
 def get_youtube_id_from_sermon_page(sermon_url):
     """Fetch the sermon page and extract the YouTube video ID from the og:image thumbnail."""
-    resp = requests.get(sermon_url, timeout=20)
+    resp = requests.get(sermon_url, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
