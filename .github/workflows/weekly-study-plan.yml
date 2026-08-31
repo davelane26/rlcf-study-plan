@@ -8,6 +8,9 @@ on:
     - cron: '0 4 * * 1'
   workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
 
+permissions:
+  contents: write   # so the final step can commit output/week-*.json back to the repo
+
 jobs:
   build-study-plan:
     runs-on: ubuntu-latest
