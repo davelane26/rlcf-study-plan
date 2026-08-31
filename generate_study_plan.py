@@ -222,6 +222,17 @@ content/themes/points of the sermon above. Each day should build toward
 having the memory verse fully memorized and the sermon's themes absorbed
 by Saturday.
 
+Write the focus, passage choices, and reflection questions through the
+lens of Zac Poonen's (Christian Fellowship Church, Bangalore) teaching
+emphasis: practical, victorious Christian living — the possibility of
+real freedom from the power of sin (not just forgiveness of it), radical
+self-denial, the Sermon on the Mount taken as a literal, attainable
+standard rather than an ideal, walking in the fear of God, and the Holy
+Spirit's indwelling as the means of actually being transformed in
+everyday attitudes and choices — not just correct doctrine or a warm
+feeling. Reflection questions especially should press toward that kind
+of honest self-examination rather than staying abstract.
+
 Each day also needs a "related_scripture" pick: a DIFFERENT passage each
 day (don't repeat the same one twice across the week) that meaningfully
 connects to the week's memory verse itself — a cross-reference, a passage
