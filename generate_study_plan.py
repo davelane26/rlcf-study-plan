@@ -132,6 +132,11 @@ def get_transcript(video_id):
         "--write-sub",
         "--sub-lang", "en",
         "--sub-format", "vtt",
+        # Lets yt-dlp download its JS challenge-solver script (runs under
+        # Deno, installed by the workflow) to handle YouTube's "n" parameter
+        # obfuscation. Without this, format/caption extraction can fail with
+        # "The page needs to be reloaded."
+        "--remote-components", "ejs:github",
         "-o", out_template,
         video_url,
     ]
