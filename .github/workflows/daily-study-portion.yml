@@ -1,0 +1,34 @@
+name: Daily Bible Study Portion (Send)
+
+on:
+  schedule:
+    # Runs 7:00 AM Mountain Time, Monday through Saturday.
+    # MT is UTC-7 (MDT) or UTC-6 (MST); 7:00 AM MDT = 13:00 UTC.
+    # Cron days: 1=Mon ... 6=Sat (0/7=Sun, intentionally excluded).
+    - cron: '0 13 * * 1-6'
+  workflow_dispatch: {}   # lets you trigger it manually to test any day
+
+jobs:
+  send-daily-portion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send today's portion
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        run: python send_daily_portion.py
