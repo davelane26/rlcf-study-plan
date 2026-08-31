@@ -236,7 +236,14 @@ day (don't repeat the same one twice across the week) that meaningfully
 connects to the week's MEMORY VERSE itself — a cross-reference, a passage
 that uses similar language/imagery, or one that develops the same
 theological theme — not just a passage that's thematically close to the
-sermon in general.
+sermon in general. Choose it the way Zac Poonen himself characteristically
+would: he draws overwhelmingly on Romans 6-8, Galatians 5, 1 John, James,
+and Hebrews 12 to make his points about walking in the Spirit versus the
+flesh and practical victory over sin — favor passages from that same
+territory over a passage that's merely thematically adjacent (e.g. avoid
+reaching for corporate/national-restoration passages like Ezekiel's dry
+bones just because it mentions "Spirit" and "life" — that's not the kind
+of cross-reference he'd actually make).
 
 For the "verse_reflection" specifically: write it about the memory
 verse and that day's related_scripture (not the sermon topic), through
