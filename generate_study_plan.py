@@ -222,6 +222,13 @@ content/themes/points of the sermon above. Each day should build toward
 having the memory verse fully memorized and the sermon's themes absorbed
 by Saturday.
 
+Each day also needs a "related_scripture" pick: a DIFFERENT passage each
+day (don't repeat the same one twice across the week) that meaningfully
+connects to the week's memory verse itself — a cross-reference, a passage
+that uses similar language/imagery, or one that develops the same
+theological theme — not just a passage that's thematically close to the
+sermon in general.
+
 Respond with ONLY a JSON array (no other text, no markdown fences), with
 exactly 6 objects in this shape:
 
@@ -230,9 +237,8 @@ exactly 6 objects in this shape:
     "day": "Monday",
     "focus": "short theme/title for the day",
     "passage": "specific Bible passage to read, tied to the sermon's themes",
-    "reflection_question": "one reflection question",
-    "application": "one brief, concrete application prompt",
-    "memory_verse_practice": "that day's specific memory verse practice step (e.g. read aloud 3x, write it out, recite from memory, etc. — should build progressively across the week)"
+    "related_scripture": "a passage that ties into the memory verse (see instructions above), different each day",
+    "application": "one brief, concrete application prompt"
   }},
   ... (5 more, one per remaining day)
 ]

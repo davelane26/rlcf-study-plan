@@ -7,8 +7,8 @@ Two automated steps, no manual intervention after setup:
    Claude to build a Monday–Saturday study plan (Sunday itself is
    skipped — that's service day).
 2. **Every morning, Monday–Saturday:** emails you just that day's
-   portion — focus, passage, reflection question, application, and
-   that day's memory verse practice step.
+   portion — focus, passage, a related scripture that ties into the
+   week's memory verse, and an application prompt.
 
 ## How it works
 
