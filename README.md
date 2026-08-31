@@ -8,7 +8,7 @@ Two automated steps, no manual intervention after setup:
    skipped — that's service day).
 2. **Every morning, Monday–Saturday:** emails you just that day's
    portion — focus, passage, a related scripture that ties into the
-   week's memory verse, and an application prompt.
+   week's memory verse, and a reflection question.
 
 ## How it works
 

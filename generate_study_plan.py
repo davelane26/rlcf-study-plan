@@ -238,7 +238,7 @@ exactly 6 objects in this shape:
     "focus": "short theme/title for the day",
     "passage": "specific Bible passage to read, tied to the sermon's themes",
     "related_scripture": "a passage that ties into the memory verse (see instructions above), different each day",
-    "application": "one brief, concrete application prompt"
+    "reflection_question": "one reflection question"
   }},
   ... (5 more, one per remaining day)
 ]
