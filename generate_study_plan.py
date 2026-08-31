@@ -88,7 +88,14 @@ def get_latest_sermon():
         raise RuntimeError("Could not find any sermon links on rlcf.church")
 
     latest = sermon_links[0]
-    title = latest.get_text(strip=True)
+    # The page renders titles via a line-clamp widget that duplicates the
+    # text in hidden measurement spans, so latest.get_text() comes back
+    # garbled/doubled. The clean title lives in a nested h5's title attr.
+    title_el = latest.select_one("h5[title]")
+    if title_el:
+        title = title_el["title"].strip()
+    else:
+        title = latest.get_text(strip=True)
     href = latest["href"]
     if href.startswith("/"):
         href = "https://rlcf.church" + href
@@ -128,7 +135,13 @@ def get_transcript(video_id):
         "-o", out_template,
         video_url,
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"yt-dlp failed (exit {result.returncode}) for {video_url}:\n"
+            f"--- stdout ---\n{result.stdout}\n"
+            f"--- stderr ---\n{result.stderr}"
+        )
 
     vtt_path = os.path.join(OUTPUT_DIR, f"{video_id}.en.vtt")
     if not os.path.exists(vtt_path):
