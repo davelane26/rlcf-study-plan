@@ -135,6 +135,14 @@ def get_transcript(video_id):
         "-o", out_template,
         video_url,
     ]
+
+    # YouTube blocks caption downloads from datacenter/CI IPs (GitHub Actions
+    # included) with "Sign in to confirm you're not a bot" unless yt-dlp
+    # authenticates with real browser cookies. If YOUTUBE_COOKIES_FILE points
+    # at a cookies.txt (Netscape format), use it.
+    cookies_file = os.environ.get("YOUTUBE_COOKIES_FILE")
+    if cookies_file and os.path.exists(cookies_file):
+        cmd += ["--cookies", cookies_file]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
