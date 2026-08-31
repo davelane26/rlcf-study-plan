@@ -23,6 +23,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Set up Deno (JS runtime yt-dlp needs to solve YouTube's "n" challenge)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Write YouTube cookies file
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
