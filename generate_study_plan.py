@@ -252,7 +252,11 @@ def extract_cited_scriptures(transcript, context_chars=120):
 
         start = max(0, m.start() - context_chars)
         end = min(len(transcript), m.end() + context_chars)
-        results.append({"reference": reference, "context": transcript[start:end].strip()})
+        results.append({
+            "reference": reference,
+            "context": transcript[start:end].strip(),
+            "position": m.start(),
+        })
 
     return results
 
@@ -260,24 +264,89 @@ def extract_cited_scriptures(transcript, context_chars=120):
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 
+def chunk_transcript(transcript, num_chunks=len(DAYS)):
+    """Split the transcript into N sequential, roughly-equal chunks (by
+    character count, snapped to the nearest whitespace so words don't get
+    cut in half) so each day of the study plan can cover a distinct,
+    chronological portion of the sermon — guaranteeing the whole message
+    gets walked through by the end of the week instead of just sampling a
+    handful of arbitrary moments.
+
+    Returns a list of {"start": int, "end": int, "text": str} dicts.
+    """
+    n = len(transcript)
+    boundaries = [0]
+    for i in range(1, num_chunks):
+        target = round(n * i / num_chunks)
+        window_start = max(0, target - 60)
+        window_end = min(n, target + 60)
+        window = transcript[window_start:window_end]
+        space_offsets = [j for j, ch in enumerate(window) if ch.isspace()]
+        if space_offsets:
+            best = min(space_offsets, key=lambda j: abs((window_start + j) - target))
+            boundaries.append(window_start + best)
+        else:
+            boundaries.append(target)
+    boundaries.append(n)
+
+    chunks = []
+    for i in range(num_chunks):
+        start, end = boundaries[i], boundaries[i + 1]
+        chunks.append({"start": start, "end": end, "text": transcript[start:end].strip()})
+    return chunks
+
+
+def group_citations_by_chunk(cited_scriptures, chunks):
+    """Bucket each detected scripture citation into the chunk (day) its
+    position in the transcript falls into."""
+    grouped = [[] for _ in chunks]
+    for citation in cited_scriptures:
+        pos = citation["position"]
+        for i, chunk in enumerate(chunks):
+            if chunk["start"] <= pos < chunk["end"] or i == len(chunks) - 1:
+                grouped[i].append(citation)
+                break
+    return grouped
+
+
 def generate_schedule(memory_verse, sermon_title, transcript, cited_scriptures=None):
     """Call the Anthropic API to turn the verse + transcript into a Mon-Sat study
     plan, returned as structured JSON (one entry per day) so each day's portion
-    can be delivered separately later in the week."""
+    can be delivered separately later in the week.
+
+    The transcript is split into 6 sequential chunks (one per day) so the
+    week walks through the ENTIRE sermon start to finish, rather than
+    Claude sampling a handful of arbitrary moments from the whole thing."""
     import anthropic
 
     client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
-    # Cap transcript length to keep the request reasonable
-    transcript_excerpt = transcript[:15000]
+    chunks = chunk_transcript(transcript, num_chunks=len(DAYS))
+    citations_by_day = group_citations_by_chunk(cited_scriptures or [], chunks)
 
-    if cited_scriptures:
-        cited_block = "\n".join(
-            f'{i}. {c["reference"]} — nearby quoted text: "...{c["context"]}..."'
-            for i, c in enumerate(cited_scriptures, 1)
-        )
-    else:
-        cited_block = "(none detected — infer passages from the sermon's general content/themes instead)"
+    day_blocks = []
+    for day_name, chunk, day_citations in zip(DAYS, chunks, citations_by_day):
+        if day_citations:
+            cited_block = "\n".join(
+                f'  - {c["reference"]} — nearby quoted text: "...{c["context"]}..."'
+                for c in day_citations
+            )
+        else:
+            cited_block = "  (none detected in this segment — infer a passage from its content instead)"
+
+        day_blocks.append(f"""=== {day_name.upper()}'S SEGMENT (roughly {int(chunk['start'] / len(transcript) * 100)}%-{int(chunk['end'] / len(transcript) * 100)}% through the sermon) ===
+{chunk['text']}
+
+Scripture references detected in THIS segment (regex-extracted from
+auto-generated captions, so chapter/verse DIGITS can be garbled or split
+oddly even when the quoted text next to them is accurate — e.g. a spoken
+"Matthew 23:25" was once mis-transcribed as "Matthew 23:2" with the "5"
+landing on the wrong side of a caption break. Cross-check each reference
+against its quoted text and silently correct the chapter/verse if the
+quote clearly points to a different one):
+{cited_block}""")
+
+    transcript_section = "\n\n".join(day_blocks)
 
     prompt = f"""You are helping build a personal Bible study schedule for the
 six days AFTER a Sunday sermon (Monday through Saturday — Sunday itself is
@@ -288,45 +357,31 @@ MEMORY VERSE FOR THE WEEK:
 
 SUNDAY SERMON TITLE: {sermon_title}
 
-SUNDAY SERMON TRANSCRIPT (may be auto-generated captions, so some words
-may be misheard/imperfect):
-{transcript_excerpt}
+The sermon transcript below (auto-generated captions, so some words may be
+misheard/imperfect) has been split into 6 SEQUENTIAL, roughly-equal
+segments — one per day of the week, in the order they were actually
+preached. This is deliberate: by covering each segment on its matching
+day, the whole sermon gets walked through start to finish across the
+week, instead of only sampling a few arbitrary highlights.
 
-SCRIPTURE REFERENCES DETECTED IN THE TRANSCRIPT (regex-extracted from the
-auto-generated captions, so chapter/verse DIGITS can be garbled or split
-oddly even when the quoted text next to them is accurate — e.g. a spoken
-"Matthew 23:25" was once mis-transcribed as "Matthew 23:2" with the "5"
-landing on the wrong side of a caption break. Cross-check each reference
-against its quoted text and silently correct the chapter/verse if the
-quote clearly points to a different one):
-{cited_block}
+{transcript_section}
 
-Build a day-by-day study plan for Monday, Tuesday, Wednesday, Thursday,
-Friday, and Saturday, based on the memory verse and the actual
-content/themes/points of the sermon above. Each day should build toward
-having the memory verse fully memorized and the sermon's themes absorbed
-by Saturday.
+For EACH day, using ONLY that day's segment above (not the other days'
+segments):
 
-The "focus" and "passages" for each day should be drawn straight from the
-actual content/themes/points of the sermon transcript above — keep these
-grounded in what was actually preached, not filtered through any
-particular teacher's style. "passages" is a LIST because a day can cover
-more than one reference.
-
-EVERY entry in the detected scripture references list above must appear
-in exactly one day's "passages" list somewhere across the week — don't
-drop any of them, and don't invent passages that aren't in that list
-(only fall back to inferring a passage from general sermon content for a
-day if the detected list is empty or has fewer entries than there are
-days). Distribute them across the 6 days as evenly and coherently as
-possible: group references that the sermon covered together onto the
-same day, follow roughly the order they came up in the sermon, and keep
-each day's count reasonably balanced (a day with 1 reference and a day
-with 6 is not balanced). The "message_reflection" for each day is a
-reflection question about that day's sermon content/passages — stay
-strictly with what the sermon actually said, don't editorialize it
-through anyone else's teaching style, and don't attribute anything to the
-original speaker that they didn't say.
+- "focus": a short theme/title for what THAT SEGMENT covered.
+- "passages": a LIST of the specific Bible passage(s) that segment
+  discussed. Prefer picking from that segment's detected scripture
+  references (correcting garbled digits per the instructions above) over
+  inventing one — only infer a passage from the segment's general content
+  if no reference was detected in it.
+- "message_recap": 1-2 sentences factually summarizing what was actually
+  said in that segment — stay strictly with what the sermon said, don't
+  editorialize through anyone else's teaching style, and don't attribute
+  anything to the speaker that they didn't say.
+- "message_quote": one short VERBATIM quote (a sentence or two, copied
+  exactly, not paraphrased) pulled directly from that day's segment text
+  above — something representative of its content.
 
 Each day also needs a "related_scripture" pick: a DIFFERENT passage each
 day (don't repeat the same one twice across the week) that meaningfully
@@ -351,28 +406,29 @@ walking in the fear of God; and the Holy Spirit's indwelling as the means
 of actually being transformed in everyday attitudes and choices, not just
 correct doctrine or a warm feeling. Push toward honest, specific
 self-examination rather than staying abstract. This is a separate voice
-from message_reflection above and should never be presented as the
-sermon speaker's own words.
+from message_recap/message_quote above and should never be presented as
+the sermon speaker's own words.
 
 Respond with ONLY a JSON array (no other text, no markdown fences), with
-exactly 6 objects in this shape:
+exactly 6 objects in this shape, in Monday-through-Saturday order:
 
 [
   {{
     "day": "Monday",
-    "focus": "short theme/title for the day",
-    "passages": ["specific Bible passage(s) to read, tied to the sermon's themes — a list, see instructions above"],
-    "message_reflection": "one reflection question about the sermon content itself, staying true to what was actually preached",
+    "focus": "short theme/title for that day's segment",
+    "passages": ["specific Bible passage(s) from that day's segment — a list, see instructions above"],
+    "message_recap": "1-2 sentences factually summarizing that day's segment",
+    "message_quote": "one short verbatim quote copied exactly from that day's segment text",
     "related_scripture": "a passage that ties into the memory verse (see instructions above), different each day",
     "verse_reflection": "one reflection question about the memory verse, in Zac Poonen's teaching voice (see instructions above)"
   }},
-  ... (5 more, one per remaining day)
+  ... (5 more, one per remaining day, in order)
 ]
 """
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=3000,
+        max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
     )
 
