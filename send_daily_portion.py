@@ -59,7 +59,7 @@ def format_email_body(week_data, entry, today_name):
         "",
         f"FOCUS: {entry['focus']}",
         "",
-        f"READ: {entry['passage']}",
+        f"READ: {'; '.join(entry['passages'])}",
         "",
         f"REFLECT ON THE MESSAGE: {entry['message_reflection']}",
         "",

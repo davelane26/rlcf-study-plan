@@ -307,18 +307,26 @@ content/themes/points of the sermon above. Each day should build toward
 having the memory verse fully memorized and the sermon's themes absorbed
 by Saturday.
 
-The "focus" and "passage" for each day should be drawn straight from the
+The "focus" and "passages" for each day should be drawn straight from the
 actual content/themes/points of the sermon transcript above — keep these
 grounded in what was actually preached, not filtered through any
-particular teacher's style. Prefer picking each day's "passage" from the
-detected scripture references above (a different one each day) over
-inventing one that wasn't actually cited — only fall back to inferring a
-passage from general sermon content if the detected list is empty, too
-short, or none of its entries fit a given day. The "message_reflection"
-for each day is a reflection question about that same sermon
-content/passage — stay strictly with what the sermon actually said, don't
-editorialize it through anyone else's teaching style, and don't attribute
-anything to the original speaker that they didn't say.
+particular teacher's style. "passages" is a LIST because a day can cover
+more than one reference.
+
+EVERY entry in the detected scripture references list above must appear
+in exactly one day's "passages" list somewhere across the week — don't
+drop any of them, and don't invent passages that aren't in that list
+(only fall back to inferring a passage from general sermon content for a
+day if the detected list is empty or has fewer entries than there are
+days). Distribute them across the 6 days as evenly and coherently as
+possible: group references that the sermon covered together onto the
+same day, follow roughly the order they came up in the sermon, and keep
+each day's count reasonably balanced (a day with 1 reference and a day
+with 6 is not balanced). The "message_reflection" for each day is a
+reflection question about that day's sermon content/passages — stay
+strictly with what the sermon actually said, don't editorialize it
+through anyone else's teaching style, and don't attribute anything to the
+original speaker that they didn't say.
 
 Each day also needs a "related_scripture" pick: a DIFFERENT passage each
 day (don't repeat the same one twice across the week) that meaningfully
@@ -353,7 +361,7 @@ exactly 6 objects in this shape:
   {{
     "day": "Monday",
     "focus": "short theme/title for the day",
-    "passage": "specific Bible passage to read, tied to the sermon's themes",
+    "passages": ["specific Bible passage(s) to read, tied to the sermon's themes — a list, see instructions above"],
     "message_reflection": "one reflection question about the sermon content itself, staying true to what was actually preached",
     "related_scripture": "a passage that ties into the memory verse (see instructions above), different each day",
     "verse_reflection": "one reflection question about the memory verse, in Zac Poonen's teaching voice (see instructions above)"

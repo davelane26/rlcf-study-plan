@@ -3,14 +3,15 @@
 Two automated steps, no manual intervention after setup:
 
 1. **Sunday night:** pulls the current memory verse and latest sermon
-   from rlcf.church, grabs that sermon's YouTube transcript, and asks
-   Claude to build a Monday–Saturday study plan (Sunday itself is
-   skipped — that's service day).
+   from rlcf.church, grabs that sermon's YouTube transcript, scans it for
+   every scripture reference the speaker actually cited, and asks Claude
+   to build a Monday–Saturday study plan that places EVERY one of those
+   citations on some day (Sunday itself is skipped — that's service day).
 2. **Every morning, Monday–Saturday:** emails you just that day's
-   portion — focus, passage, and a reflection question on the sermon
-   itself, plus a related scripture that ties into the week's memory
-   verse and a separate reflection question on that (written in Zac
-   Poonen's teaching voice).
+   portion — focus, that day's passage(s) from the sermon, and a
+   reflection question on the sermon itself, plus a related scripture
+   that ties into the week's memory verse and a separate reflection
+   question on that (written in Zac Poonen's teaching voice).
 
 ## How it works
 
