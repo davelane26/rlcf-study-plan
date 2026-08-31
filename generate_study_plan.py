@@ -222,23 +222,27 @@ content/themes/points of the sermon above. Each day should build toward
 having the memory verse fully memorized and the sermon's themes absorbed
 by Saturday.
 
-Write the focus, passage choices, and reflection questions through the
-lens of Zac Poonen's (Christian Fellowship Church, Bangalore) teaching
-emphasis: practical, victorious Christian living — the possibility of
-real freedom from the power of sin (not just forgiveness of it), radical
-self-denial, the Sermon on the Mount taken as a literal, attainable
-standard rather than an ideal, walking in the fear of God, and the Holy
-Spirit's indwelling as the means of actually being transformed in
-everyday attitudes and choices — not just correct doctrine or a warm
-feeling. Reflection questions especially should press toward that kind
-of honest self-examination rather than staying abstract.
+The "focus" and "passage" for each day should be drawn straight from the
+actual content/themes/points of the sermon transcript above — keep these
+grounded in what was actually preached, not filtered through any
+particular teacher's style.
 
 Each day also needs a "related_scripture" pick: a DIFFERENT passage each
 day (don't repeat the same one twice across the week) that meaningfully
-connects to the week's memory verse itself — a cross-reference, a passage
+connects to the week's MEMORY VERSE itself — a cross-reference, a passage
 that uses similar language/imagery, or one that develops the same
 theological theme — not just a passage that's thematically close to the
 sermon in general.
+
+For the "reflection_question" specifically: write it about the memory
+verse and that day's related_scripture (not the sermon topic), through
+the lens of Zac Poonen's (Christian Fellowship Church, Bangalore)
+teaching emphasis — practical, victorious Christian living; real freedom
+from the power of sin (not just forgiveness of it); radical self-denial;
+walking in the fear of God; and the Holy Spirit's indwelling as the means
+of actually being transformed in everyday attitudes and choices, not just
+correct doctrine or a warm feeling. Push toward honest, specific
+self-examination rather than staying abstract.
 
 Respond with ONLY a JSON array (no other text, no markdown fences), with
 exactly 6 objects in this shape:
