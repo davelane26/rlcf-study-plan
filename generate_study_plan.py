@@ -53,8 +53,8 @@ def get_memory_verse():
     resp = requests.get(CHURCH_HOME_URL, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
     print(f"  (fetched {CHURCH_HOME_URL}: status {resp.status_code}, "
-          f"{len(resp.text)} chars)")
-    soup = BeautifulSoup(resp.text, "html.parser")
+          f"{len(resp.content)} bytes)")
+    soup = BeautifulSoup(resp.content, "html.parser")
 
     # Memory verses are rendered as <img alt="..."> with the verse text
     # baked into the alt attribute, followed by a label (Adult / Junior,
@@ -81,7 +81,7 @@ def get_latest_sermon():
     """Find the most recent sermon title, URL, speaker, and date from the homepage."""
     resp = requests.get(CHURCH_HOME_URL, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(resp.content, "html.parser")
 
     sermon_links = soup.select('a[href*="/media/sermons/"]')
     if not sermon_links:
@@ -100,7 +100,7 @@ def get_youtube_id_from_sermon_page(sermon_url):
     """Fetch the sermon page and extract the YouTube video ID from the og:image thumbnail."""
     resp = requests.get(sermon_url, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(resp.content, "html.parser")
 
     og_image = soup.find("meta", property="og:image")
     if not og_image:
