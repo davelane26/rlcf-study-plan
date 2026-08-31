@@ -5,7 +5,10 @@ RLCF Weekly Bible Study Plan Generator
 Runs end-to-end, no manual intervention:
   1. Scrapes rlcf.church for this week's memory verse.
   2. Finds the latest sermon page and its YouTube video ID.
-  3. Uses yt-dlp to pull the video's caption/transcript.
+  3. Uses youtube-transcript-api to pull the video's caption/transcript
+     directly from YouTube's public timedtext endpoint (no cookies, no
+     yt-dlp, no bot wall — the same source YouTube's own "Show
+     transcript" button uses).
   4. Sends the verse + transcript to Claude (via the Anthropic API) to
      generate a day-by-day study schedule for the week.
   5. Writes the result to a Markdown file and (optionally) emails it.
@@ -14,7 +17,7 @@ Intended to be run by a scheduler (cron / GitHub Actions) every
 Sunday night. See README.md for setup instructions.
 
 Requirements:
-  pip install requests beautifulsoup4 anthropic yt-dlp
+  pip install requests beautifulsoup4 anthropic youtube-transcript-api
 
 Environment variables required:
   ANTHROPIC_API_KEY   - your Anthropic API key
@@ -27,11 +30,16 @@ import os
 import re
 import sys
 import json
-import subprocess
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable,
+)
 
 CHURCH_HOME_URL = "https://rlcf.church/"
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
@@ -121,72 +129,31 @@ def get_youtube_id_from_sermon_page(sermon_url):
 
 
 def get_transcript(video_id):
-    """Use yt-dlp to pull the auto-generated (or manual) English transcript for a video."""
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-    out_template = os.path.join(OUTPUT_DIR, "%(id)s.%(ext)s")
+    """Return the sermon's transcript as a single plain-text string.
 
-    cmd = [
-        "yt-dlp",
-        "--skip-download",
-        "--write-auto-sub",
-        "--write-sub",
-        "--sub-lang", "en",
-        "--sub-format", "vtt",
-        # Lets yt-dlp download its JS challenge-solver script (runs under
-        # Deno, installed by the workflow) to handle YouTube's "n" parameter
-        # obfuscation. Without this, format/caption extraction can fail with
-        # "The page needs to be reloaded."
-        "--remote-components", "ejs:github",
-        "-o", out_template,
-        video_url,
-    ]
+    Uses YouTube's public timedtext API via youtube-transcript-api. That
+    endpoint is the same one YouTube's own "Show transcript" button hits,
+    so no cookies, no yt-dlp, and no "Sign in to confirm you're not a
+    bot" wall (which is what killed the previous yt-dlp path from
+    GitHub Actions datacenter IPs).
 
-    # YouTube blocks caption downloads from datacenter/CI IPs (GitHub Actions
-    # included) with "Sign in to confirm you're not a bot" unless yt-dlp
-    # authenticates with real browser cookies. If YOUTUBE_COOKIES_FILE points
-    # at a cookies.txt (Netscape format), use it.
-    cookies_file = os.environ.get("YOUTUBE_COOKIES_FILE")
-    if cookies_file and os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0:
-        cmd += ["--cookies", cookies_file]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
+    Prefers a manually-uploaded English track (more accurate) and falls
+    back to auto-generated English if that's all that exists.
+    """
+    api = YouTubeTranscriptApi()
+    try:
+        listing = api.list(video_id)
+        try:
+            track = listing.find_manually_created_transcript(["en"])
+        except NoTranscriptFound:
+            track = listing.find_generated_transcript(["en"])
+        snippets = track.fetch().snippets
+    except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable) as e:
         raise RuntimeError(
-            f"yt-dlp failed (exit {result.returncode}) for {video_url}:\n"
-            f"--- stdout ---\n{result.stdout}\n"
-            f"--- stderr ---\n{result.stderr}"
-        )
+            f"No transcript available for video {video_id}: {e}"
+        ) from e
 
-    vtt_path = os.path.join(OUTPUT_DIR, f"{video_id}.en.vtt")
-    if not os.path.exists(vtt_path):
-        raise RuntimeError(f"No transcript file found for video {video_id}. "
-                            f"The video may not have captions available.")
-
-    return vtt_to_plain_text(vtt_path)
-
-
-def vtt_to_plain_text(vtt_path):
-    """Strip WebVTT timing/formatting down to plain, de-duplicated text."""
-    with open(vtt_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    text_lines = []
-    seen = set()
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith(("WEBVTT", "Kind:", "Language:")):
-            continue
-        if re.match(r"^\d{2}:\d{2}:\d{2}", line):  # timestamp line
-            continue
-        if re.match(r"^\d+$", line):  # cue number
-            continue
-        clean = re.sub(r"<[^>]+>", "", line)  # strip inline tags
-        if clean and clean not in seen:
-            text_lines.append(clean)
-            seen.add(clean)
-
-    return " ".join(text_lines)
+    return " ".join(s.text for s in snippets)
 
 
 BIBLE_BOOKS = [
@@ -459,7 +426,7 @@ def main():
     video_id = get_youtube_id_from_sermon_page(sermon["url"])
     print(f"  -> {video_id}")
 
-    print("Pulling transcript via yt-dlp...")
+    print("Pulling transcript via YouTube timedtext API...")
     transcript = get_transcript(video_id)
     print(f"  -> {len(transcript)} characters of transcript")
 

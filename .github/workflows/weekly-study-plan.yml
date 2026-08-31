@@ -26,25 +26,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Set up Deno (JS runtime yt-dlp needs to solve YouTube's "n" challenge)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
-      - name: Write YouTube cookies file
-        env:
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-        run: printf '%s\n' "$YOUTUBE_COOKIES" > youtube_cookies.txt
-
       - name: Generate this week's Monday-Saturday plan
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          YOUTUBE_COOKIES_FILE: youtube_cookies.txt
         run: python generate_study_plan.py
-
-      - name: Clean up cookies file
-        if: always()
-        run: rm -f youtube_cookies.txt
 
       - name: Commit generated plan back to repo
         run: |

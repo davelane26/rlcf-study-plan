@@ -25,8 +25,11 @@ Two automated steps, no manual intervention after setup:
 3. `get_youtube_id_from_sermon_page()` reads that sermon page's embedded
    YouTube thumbnail to recover the video ID (the church's site doesn't
    expose a clean video URL directly, but the thumbnail always does).
-4. `get_transcript()` uses **yt-dlp** to download that video's captions
-   (auto-generated or manual) and convert them to plain text.
+4. `get_transcript()` uses the **youtube-transcript-api** library to
+   pull the video's captions (auto-generated or manual) directly from
+   YouTube's public timedtext endpoint — the same source YouTube's own
+   “Show transcript” button hits. No cookies, no yt-dlp, no “confirm
+   you’re not a bot” wall.
 5. `generate_schedule()` sends the verse + transcript to Claude and gets
    back a structured 6-day (Mon–Sat) plan as JSON.
 6. Saves it to `output/week-YYYY-MM-DD.json`.
