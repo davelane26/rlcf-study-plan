@@ -189,10 +189,78 @@ def vtt_to_plain_text(vtt_path):
     return " ".join(text_lines)
 
 
+BIBLE_BOOKS = [
+    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua",
+    "Judges", "Ruth", "Samuel", "Kings", "Chronicles", "Ezra", "Nehemiah",
+    "Esther", "Job", "Psalms?", "Proverbs", "Ecclesiastes",
+    "Song of Solomon", "Song of Songs", "Isaiah", "Jeremiah",
+    "Lamentations", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos",
+    "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk", "Zephaniah",
+    "Haggai", "Zechariah", "Malachi", "Matthew", "Mark", "Luke", "John",
+    "Acts", "Romans", "Corinthians", "Galatians", "Ephesians",
+    "Philippians", "Colossians", "Thessalonians", "Timothy", "Titus",
+    "Philemon", "Hebrews", "James", "Peter", "Jude", "Revelations?",
+]
+
+_BOOK_PATTERN = "|".join(sorted(BIBLE_BOOKS, key=len, reverse=True))
+_PREFIX_PATTERN = r"(?:[123]|First|Second|Third)\s+"
+_PREFIX_NORMALIZE = {"first": "1", "second": "2", "third": "3"}
+
+SCRIPTURE_REF_RE = re.compile(
+    rf"\b(?P<prefix>{_PREFIX_PATTERN})?(?P<book>{_BOOK_PATTERN})\s+"
+    rf"(?P<chapter>\d{{1,3}})(?::(?P<verse>\d{{1,3}}(?:-\d{{1,3}})?))?\b",
+    re.IGNORECASE,
+)
+
+
+def extract_cited_scriptures(transcript, context_chars=120):
+    """Best-effort scan of the transcript for scripture references the
+    speaker actually said out loud (e.g. "Romans 6:14"), so the plan's
+    passage picks can be grounded in what was literally cited rather than
+    inferred from vibes alone.
+
+    This runs on auto-generated captions, which regularly mangle spoken
+    numbers (e.g. a spoken "Matthew 23:25" was once transcribed here as
+    "25. Matthew 23:2." with the digits split across a caption boundary).
+    So each match comes back with a chunk of surrounding quoted text,
+    letting Claude (or a human) sanity-check/correct the chapter:verse
+    against what was actually quoted, instead of trusting the raw digits.
+
+    Returns a list of {"reference": ..., "context": ...} dicts, deduped by
+    reference, in order of first mention.
+    """
+    seen = set()
+    results = []
+    for m in SCRIPTURE_REF_RE.finditer(transcript):
+        prefix = m.group("prefix")
+        book = m.group("book")
+        chapter = m.group("chapter")
+        verse = m.group("verse")
+
+        if prefix:
+            prefix_norm = _PREFIX_NORMALIZE.get(prefix.strip().lower(), prefix.strip())
+            reference = f"{prefix_norm} {book} {chapter}"
+        else:
+            reference = f"{book} {chapter}"
+        if verse:
+            reference += f":{verse}"
+
+        key = reference.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        start = max(0, m.start() - context_chars)
+        end = min(len(transcript), m.end() + context_chars)
+        results.append({"reference": reference, "context": transcript[start:end].strip()})
+
+    return results
+
+
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 
-def generate_schedule(memory_verse, sermon_title, transcript):
+def generate_schedule(memory_verse, sermon_title, transcript, cited_scriptures=None):
     """Call the Anthropic API to turn the verse + transcript into a Mon-Sat study
     plan, returned as structured JSON (one entry per day) so each day's portion
     can be delivered separately later in the week."""
@@ -202,6 +270,14 @@ def generate_schedule(memory_verse, sermon_title, transcript):
 
     # Cap transcript length to keep the request reasonable
     transcript_excerpt = transcript[:15000]
+
+    if cited_scriptures:
+        cited_block = "\n".join(
+            f'{i}. {c["reference"]} — nearby quoted text: "...{c["context"]}..."'
+            for i, c in enumerate(cited_scriptures, 1)
+        )
+    else:
+        cited_block = "(none detected — infer passages from the sermon's general content/themes instead)"
 
     prompt = f"""You are helping build a personal Bible study schedule for the
 six days AFTER a Sunday sermon (Monday through Saturday — Sunday itself is
@@ -216,6 +292,15 @@ SUNDAY SERMON TRANSCRIPT (may be auto-generated captions, so some words
 may be misheard/imperfect):
 {transcript_excerpt}
 
+SCRIPTURE REFERENCES DETECTED IN THE TRANSCRIPT (regex-extracted from the
+auto-generated captions, so chapter/verse DIGITS can be garbled or split
+oddly even when the quoted text next to them is accurate — e.g. a spoken
+"Matthew 23:25" was once mis-transcribed as "Matthew 23:2" with the "5"
+landing on the wrong side of a caption break. Cross-check each reference
+against its quoted text and silently correct the chapter/verse if the
+quote clearly points to a different one):
+{cited_block}
+
 Build a day-by-day study plan for Monday, Tuesday, Wednesday, Thursday,
 Friday, and Saturday, based on the memory verse and the actual
 content/themes/points of the sermon above. Each day should build toward
@@ -225,11 +310,15 @@ by Saturday.
 The "focus" and "passage" for each day should be drawn straight from the
 actual content/themes/points of the sermon transcript above — keep these
 grounded in what was actually preached, not filtered through any
-particular teacher's style. The "message_reflection" for each day is a
-reflection question about that same sermon content/passage — stay
-strictly with what the sermon actually said, don't editorialize it
-through anyone else's teaching style, and don't attribute anything to the
-original speaker that they didn't say.
+particular teacher's style. Prefer picking each day's "passage" from the
+detected scripture references above (a different one each day) over
+inventing one that wasn't actually cited — only fall back to inferring a
+passage from general sermon content if the detected list is empty, too
+short, or none of its entries fit a given day. The "message_reflection"
+for each day is a reflection question about that same sermon
+content/passage — stay strictly with what the sermon actually said, don't
+editorialize it through anyone else's teaching style, and don't attribute
+anything to the original speaker that they didn't say.
 
 Each day also needs a "related_scripture" pick: a DIFFERENT passage each
 day (don't repeat the same one twice across the week) that meaningfully
@@ -310,8 +399,13 @@ def main():
     transcript = get_transcript(video_id)
     print(f"  -> {len(transcript)} characters of transcript")
 
+    print("Scanning transcript for scripture references the speaker cited...")
+    cited_scriptures = extract_cited_scriptures(transcript)
+    print(f"  -> {len(cited_scriptures)} candidate reference(s): "
+          f"{', '.join(c['reference'] for c in cited_scriptures) or '(none)'}")
+
     print("Generating Monday-Saturday study schedule with Claude...")
-    days = generate_schedule(memory_verse, sermon["title"], transcript)
+    days = generate_schedule(memory_verse, sermon["title"], transcript, cited_scriptures)
 
     # Saved as JSON, keyed by the Sunday date this week's plan belongs to.
     # send_daily_portion.py reads this file each day (Mon-Sat) and sends
@@ -325,6 +419,8 @@ def main():
         "sermon_title": sermon["title"],
         "sermon_url": sermon["url"],
         "days": days,
+        # Kept for transparency/debugging — not used by send_daily_portion.py.
+        "cited_scriptures_detected": cited_scriptures,
     }
 
     with open(out_path, "w", encoding="utf-8") as f:
