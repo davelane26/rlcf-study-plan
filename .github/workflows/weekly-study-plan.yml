@@ -1,11 +1,13 @@
 name: Weekly Bible Study Plan (Generate)
 
 on:
-  schedule:
-    # Runs 10:00 PM Mountain Time on Sundays, after the sermon has posted.
-    # GitHub Actions cron is in UTC; MT is UTC-7 (MDT) or UTC-6 (MST).
-    # 10:00 PM MDT Sunday = 04:00 UTC Monday. Adjust by 1 hour during MST season.
-    - cron: '0 4 * * 1'
+  # Auto-schedule intentionally disabled: generation now runs on a local PC
+  # (via Task Scheduler) with a residential IP, since YouTube blocks
+  # unauthenticated caption requests from GitHub-hosted runners' datacenter
+  # IPs. This workflow is kept as a manual fallback only — e.g. if the local
+  # PC is offline, or YOUTUBE_COOKIES happens to still be valid.
+  # schedule:
+  #   - cron: '0 4 * * 1'
   workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
 
 permissions:
