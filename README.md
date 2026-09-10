@@ -40,26 +40,25 @@ Two automated steps, no manual intervention after setup:
 
 ## One-time setup (about 15 minutes)
 
-### 1. Get an Anthropic API key
-Go to [console.anthropic.com](https://console.anthropic.com), create an
-API key. Note: this uses the paid API (separate from a claude.ai
-subscription) — cost is a few cents per week, since generation only
-happens once.
+### 1. Get an API key (Free Gemini or Anthropic)
+- **Google Gemini (Recommended & Free):** Get a free API key from [Google AI Studio](https://aistudio.google.com). No credit card required.
+  - Set as `GEMINI_API_KEY` in GitHub Secrets.
+- **Anthropic Claude (Alternative):** Get a key from [console.anthropic.com](https://console.anthropic.com).
+  - Set as `ANTHROPIC_API_KEY` in GitHub Secrets.
 
 ### 2. Create a GitHub repo
 - Create a new repo (can be private).
-- Add all the files in this folder to it: `generate_study_plan.py`,
+- Add all files in this project: `generate_study_plan.py`,
   `send_daily_portion.py`, `requirements.txt`,
   `.github/workflows/weekly-study-plan.yml`,
   `.github/workflows/daily-study-portion.yml`, this `README.md`.
-- Create the empty `output/` folder so the Sunday job has somewhere to
-  commit into (add a placeholder file like `output/.gitkeep`).
+- Ensure `output/` exists for commits.
 
 ### 3. Add your secrets
 In the repo: **Settings → Secrets and variables → Actions → New repository secret**.
 
-Required for generation:
-- `ANTHROPIC_API_KEY` — your key from step 1
+Required for generation (at least one):
+- `GEMINI_API_KEY` (free tier via Google AI Studio) OR `ANTHROPIC_API_KEY`
 
 Required for daily delivery (email):
 - `SMTP_HOST` (e.g. `smtp.gmail.com`)
@@ -70,47 +69,40 @@ Required for daily delivery (email):
 - `EMAIL_TO` (where to send it — can be same as SMTP_USER)
 - `EMAIL_FROM` (usually same as SMTP_USER)
 
-Without SMTP secrets set, `send_daily_portion.py` will just print that
-day's portion to the workflow log instead of emailing it — useful for
-testing, but you'll want SMTP configured for real hands-off delivery.
+Without SMTP secrets set, `send_daily_portion.py` will print that
+day's portion to the log instead of emailing it — useful for testing.
 
 Optional, in addition to email:
 - `SLACK_WEBHOOK_URL` — an Incoming Webhook URL from a Slack app
-  (api.slack.com → your app → Incoming Webhooks). Posts the same daily
-  portion to a Slack channel alongside the email. Skipped silently if
-  not set.
+  (posts formatted Block Kit messages alongside email).
 
 ### 4. Confirm the schedules
-- **Generation** (`weekly-study-plan.yml`) runs 10:00 PM Mountain Time
-  Sundays, after the sermon has posted.
+- **Generation** (`weekly-study-plan.yml`) runs automatically at 10:00 PM Mountain Time
+  Sundays (04:00 UTC Monday) after the sermon has posted.
 - **Daily send** (`daily-study-portion.yml`) runs 7:00 AM Mountain Time,
   Monday through Saturday.
 
-Daylight saving shifts both by an hour part of the year — nudge the cron
-hour by 1 if you want them pinned exactly. Both are also runnable
-on-demand from the repo's **Actions** tab → select the workflow →
-**Run workflow**.
+Both are also runnable on-demand from the repo's **Actions** tab → select the workflow → **Run workflow**.
 
-### 5. Test it once manually
-- Run **"Weekly Bible Study Plan (Generate)"** manually first, and
-  confirm `output/week-<date>.json` gets committed with 6 days' worth of
-  content.
-- Then run **"Daily Bible Study Portion (Send)"** manually and confirm
-  you get an email for whatever day it currently is (it'll do nothing if
-  you test it on a Sunday — that's expected).
-
-## Running it locally (optional, for testing)
+## Running locally & Previewing
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=your-key-here
-python generate_study_plan.py
 
-# then, any day Mon-Sat:
-export SMTP_HOST=smtp.gmail.com SMTP_PORT=587 SMTP_USER=you@gmail.com \
-       SMTP_PASS=your-app-password EMAIL_TO=you@gmail.com EMAIL_FROM=you@gmail.com
-python send_daily_portion.py
+# Test transcript and scripture extraction without calling LLMs:
+python generate_study_plan.py --dry-run
+
+# Preview today's formatted email in your web browser:
+python send_daily_portion.py --preview
+
+# Preview a specific day:
+python send_daily_portion.py --preview --day Tuesday
+
+# Generate plan using Gemini (free) or Anthropic:
+export GEMINI_API_KEY=your-gemini-key
+python generate_study_plan.py
 ```
+
 
 ## Known limitations
 

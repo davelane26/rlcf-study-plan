@@ -1,13 +1,9 @@
 name: Weekly Bible Study Plan (Generate)
 
 on:
-  # Auto-schedule intentionally disabled: generation now runs on a local PC
-  # (via Task Scheduler) with a residential IP, since YouTube blocks
-  # unauthenticated caption requests from GitHub-hosted runners' datacenter
-  # IPs. This workflow is kept as a manual fallback only — e.g. if the local
-  # PC is offline, or YOUTUBE_COOKIES happens to still be valid.
-  # schedule:
-  #   - cron: '0 4 * * 1'
+  schedule:
+    # Runs Sunday night at 10:00 PM Mountain Time (04:00 UTC Monday)
+    - cron: '0 4 * * 1'
   workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
 
 permissions:
@@ -33,14 +29,18 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Write YouTube cookies file
+      - name: Write YouTube cookies file (optional fallback)
         env:
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-        run: printf '%s\n' "$YOUTUBE_COOKIES" > youtube_cookies.txt
+        run: |
+          if [ -n "$YOUTUBE_COOKIES" ]; then
+            printf '%s\n' "$YOUTUBE_COOKIES" > youtube_cookies.txt
+          fi
 
       - name: Generate this week's Monday-Saturday plan
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_COOKIES_FILE: youtube_cookies.txt
         run: python generate_study_plan.py
 

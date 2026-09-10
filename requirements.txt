@@ -2,3 +2,4 @@ requests
 beautifulsoup4
 anthropic
 yt-dlp
+youtube-transcript-api

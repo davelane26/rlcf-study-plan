@@ -103,25 +103,89 @@ def get_latest_sermon():
     return {"title": title, "url": href}
 
 
+def extract_video_id(url_or_id):
+    """Normalize a YouTube URL or standalone 11-char ID to just the 11-char video ID."""
+    if not url_or_id:
+        return None
+    url_or_id = url_or_id.strip()
+    match = re.search(r"(?:v=|\/vi\/|\/embed\/|youtu\.be\/|\/v\/|^)([A-Za-z0-9_-]{11})", url_or_id)
+    if match:
+        return match.group(1)
+    return url_or_id
+
+
 def get_youtube_id_from_sermon_page(sermon_url):
-    """Fetch the sermon page and extract the YouTube video ID from the og:image thumbnail."""
+    """Fetch the sermon page and extract the YouTube video ID from og:image thumbnail, iframe, or links."""
     resp = requests.get(sermon_url, headers=REQUEST_HEADERS, timeout=20)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.content, "html.parser")
 
+    # Check og:image meta tag
     og_image = soup.find("meta", property="og:image")
-    if not og_image:
-        raise RuntimeError(f"No og:image meta tag found on {sermon_url}")
+    if og_image and og_image.get("content"):
+        match = re.search(r"i\.ytimg\.com/vi/([A-Za-z0-9_-]{11})/", og_image["content"])
+        if match:
+            return match.group(1)
 
-    match = re.search(r"i\.ytimg\.com/vi/([A-Za-z0-9_-]{11})/", og_image["content"])
-    if not match:
-        raise RuntimeError(f"Could not parse YouTube ID from {og_image['content']}")
+    # Check iframe embed
+    iframes = soup.find_all("iframe")
+    for iframe in iframes:
+        src = iframe.get("src", "")
+        match = re.search(r"youtube\.com/embed/([A-Za-z0-9_-]{11})", src)
+        if match:
+            return match.group(1)
 
-    return match.group(1)
+    # Check any youtube links on page
+    links = soup.find_all("a", href=True)
+    for link in links:
+        href = link["href"]
+        match = re.search(r"(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})", href)
+        if match:
+            return match.group(1)
+
+    raise RuntimeError(f"Could not parse YouTube ID from {sermon_url}")
 
 
-def get_transcript(video_id):
-    """Use yt-dlp to pull the auto-generated (or manual) English transcript for a video."""
+def get_transcript_via_api(video_id, max_retries=3, delay_secs=4):
+    """Attempt fetching captions via youtube-transcript-api.
+    
+    Avoids bot challenges and IP blocking on cloud runners without browser cookies.
+    """
+    import time
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError:
+        print("  [youtube-transcript-api] Not installed.")
+        return None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            api = YouTubeTranscriptApi()
+            if hasattr(api, "fetch"):
+                transcript_obj = api.fetch(video_id)
+            elif hasattr(YouTubeTranscriptApi, "get_transcript"):
+                transcript_obj = YouTubeTranscriptApi.get_transcript(video_id)
+            else:
+                return None
+
+            snippets = []
+            for s in transcript_obj:
+                t = getattr(s, "text", None) or (s.get("text") if isinstance(s, dict) else None)
+                if t:
+                    snippets.append(t.strip())
+
+            if snippets:
+                return " ".join(snippets)
+        except Exception as e:
+            print(f"  [youtube-transcript-api attempt {attempt}/{max_retries}] {e}")
+            if attempt < max_retries:
+                time.sleep(delay_secs)
+
+    return None
+
+
+def get_transcript_via_ytdlp(video_id):
+    """Fallback to yt-dlp if installed."""
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     out_template = os.path.join(OUTPUT_DIR, "%(id)s.%(ext)s")
 
@@ -132,36 +196,53 @@ def get_transcript(video_id):
         "--write-sub",
         "--sub-lang", "en",
         "--sub-format", "vtt",
-        # Lets yt-dlp download its JS challenge-solver script (runs under
-        # Deno, installed by the workflow) to handle YouTube's "n" parameter
-        # obfuscation. Without this, format/caption extraction can fail with
-        # "The page needs to be reloaded."
         "--remote-components", "ejs:github",
         "-o", out_template,
         video_url,
     ]
 
-    # YouTube blocks caption downloads from datacenter/CI IPs (GitHub Actions
-    # included) with "Sign in to confirm you're not a bot" unless yt-dlp
-    # authenticates with real browser cookies. If YOUTUBE_COOKIES_FILE points
-    # at a cookies.txt (Netscape format), use it.
     cookies_file = os.environ.get("YOUTUBE_COOKIES_FILE")
     if cookies_file and os.path.exists(cookies_file) and os.path.getsize(cookies_file) > 0:
         cmd += ["--cookies", cookies_file]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"yt-dlp failed (exit {result.returncode}) for {video_url}:\n"
-            f"--- stdout ---\n{result.stdout}\n"
-            f"--- stderr ---\n{result.stderr}"
-        )
 
-    vtt_path = os.path.join(OUTPUT_DIR, f"{video_id}.en.vtt")
-    if not os.path.exists(vtt_path):
-        raise RuntimeError(f"No transcript file found for video {video_id}. "
-                            f"The video may not have captions available.")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  (yt-dlp exited with {result.returncode})")
+            return None
 
-    return vtt_to_plain_text(vtt_path)
+        vtt_path = os.path.join(OUTPUT_DIR, f"{video_id}.en.vtt")
+        if not os.path.exists(vtt_path):
+            return None
+
+        return vtt_to_plain_text(vtt_path)
+    except FileNotFoundError:
+        print("  (yt-dlp executable not found in PATH)")
+        return None
+
+
+def get_transcript(video_id):
+    """Multi-tier transcript extraction:
+    Tier 1: youtube-transcript-api (no cookies, no bot challenges)
+    Tier 2: yt-dlp fallback (with cookies if configured)
+    """
+    print("  Tier 1: Trying youtube-transcript-api...")
+    text = get_transcript_via_api(video_id)
+    if text:
+        print(f"  -> Successfully extracted {len(text)} characters via youtube-transcript-api.")
+        return text
+
+    print("  Tier 2: Trying yt-dlp fallback...")
+    text = get_transcript_via_ytdlp(video_id)
+    if text:
+        print(f"  -> Successfully extracted {len(text)} characters via yt-dlp.")
+        return text
+
+    raise RuntimeError(
+        f"Could not retrieve transcript for video {video_id}.\n"
+        f"If the sermon was just streamed, YouTube auto-captions often take 30-90 minutes to process.\n"
+        f"You can retry later, or check if captions are available on YouTube."
+    )
 
 
 def vtt_to_plain_text(vtt_path):
@@ -309,17 +390,62 @@ def group_citations_by_chunk(cited_scriptures, chunks):
     return grouped
 
 
-def generate_schedule(memory_verse, sermon_title, transcript, cited_scriptures=None):
-    """Call the Anthropic API to turn the verse + transcript into a Mon-Sat study
+def generate_with_gemini(prompt, api_key):
+    """Call Google AI Studio Gemini API (gemini-2.5-flash) using requests (no extra SDK needed)."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    payload = {
+        "contents": [
+            {
+                "parts": [{"text": prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json"
+        }
+    }
+    resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as err:
+        raise RuntimeError(f"Unexpected response structure from Gemini API: {data}") from err
+
+
+def generate_with_anthropic(prompt, api_key):
+    """Call Anthropic API using official SDK."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return "".join(block.text for block in message.content if block.type == "text")
+
+
+def generate_schedule(memory_verse, sermon_title, transcript, cited_scriptures=None, provider=None):
+    """Call Gemini or Anthropic API to turn the verse + transcript into a Mon-Sat study
     plan, returned as structured JSON (one entry per day) so each day's portion
     can be delivered separately later in the week.
 
     The transcript is split into 6 sequential chunks (one per day) so the
     week walks through the ENTIRE sermon start to finish, rather than
-    Claude sampling a handful of arbitrary moments from the whole thing."""
-    import anthropic
+    the LLM sampling a handful of arbitrary moments from the whole thing."""
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+    if not provider:
+        if gemini_key:
+            provider = "gemini"
+        elif anthropic_key:
+            provider = "anthropic"
+        else:
+            raise RuntimeError(
+                "No LLM API key configured. Please set GEMINI_API_KEY (free at https://aistudio.google.com) "
+                "or ANTHROPIC_API_KEY in your environment or GitHub Secrets."
+            )
 
     chunks = chunk_transcript(transcript, num_chunks=len(DAYS))
     citations_by_day = group_citations_by_chunk(cited_scriptures or [], chunks)
@@ -409,6 +535,10 @@ self-examination rather than staying abstract. This is a separate voice
 from message_recap/message_quote above and should never be presented as
 the sermon speaker's own words.
 
+For "daily_prayer": write 2-3 sentences of sincere, personal prayer applying
+the day's scripture and reflection in honest surrender and confession to the
+Lord.
+
 Respond with ONLY a JSON array (no other text, no markdown fences), with
 exactly 6 objects in this shape, in Monday-through-Saturday order:
 
@@ -420,46 +550,88 @@ exactly 6 objects in this shape, in Monday-through-Saturday order:
     "message_recap": "1-2 sentences factually summarizing that day's segment",
     "message_quote": "one short verbatim quote copied exactly from that day's segment text",
     "related_scripture": "a passage that ties into the memory verse (see instructions above), different each day",
-    "verse_reflection": "one reflection question about the memory verse, in Zac Poonen's teaching voice (see instructions above)"
+    "verse_reflection": "one reflection question about the memory verse, in Zac Poonen's teaching voice (see instructions above)",
+    "daily_prayer": "2-3 sentences of sincere prayer applying this portion in honest surrender to God"
   }},
   ... (5 more, one per remaining day, in order)
 ]
 """
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    if provider == "gemini":
+        if not gemini_key:
+            raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
+        print("  Calling Google Gemini API (gemini-2.5-flash)...")
+        raw_text = generate_with_gemini(prompt, gemini_key)
+    elif provider == "anthropic":
+        if not anthropic_key:
+            raise RuntimeError("ANTHROPIC_API_KEY environment variable is missing.")
+        print("  Calling Anthropic API (Claude Sonnet)...")
+        raw_text = generate_with_anthropic(prompt, anthropic_key)
+    else:
+        raise RuntimeError(f"Unknown provider '{provider}'. Choose 'gemini' or 'anthropic'.")
 
-    raw_text = "".join(block.text for block in message.content if block.type == "text")
     raw_text = raw_text.strip()
-    # In case the model wraps it in fences despite instructions
-    raw_text = re.sub(r"^```(json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
+    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.MULTILINE)
+    raw_text = re.sub(r"\s*```$", "", raw_text, flags=re.MULTILINE).strip()
 
     days = json.loads(raw_text)
-    if len(days) != 6:
-        raise RuntimeError(f"Expected 6 days back from Claude, got {len(days)}")
+    if isinstance(days, dict):
+        for key in ("days", "schedule", "plan"):
+            if key in days and isinstance(days[key], list):
+                days = days[key]
+                break
+
+    if not isinstance(days, list) or len(days) != 6:
+        raise RuntimeError(f"Expected 6 days in plan, got: {days}")
 
     return days
 
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate RLCF weekly Bible study plan.")
+    parser.add_argument("--video", type=str, help="Specify YouTube video ID or URL directly")
+    parser.add_argument("--verse", type=str, help="Specify memory verse text directly")
+    parser.add_argument("--provider", type=str, choices=["gemini", "anthropic"], help="LLM provider")
+    parser.add_argument("--dry-run", action="store_true", help="Fetch sermon & captions and exit before LLM call")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    print("Fetching this week's memory verse...")
-    memory_verse = get_memory_verse()
+    if args.verse:
+        print("Using memory verse from argument...")
+        memory_verse = args.verse
+    elif os.environ.get("MEMORY_VERSE"):
+        print("Using memory verse from environment variable...")
+        memory_verse = os.environ["MEMORY_VERSE"]
+    else:
+        print("Fetching this week's memory verse from rlcf.church...")
+        memory_verse = get_memory_verse()
     print(f"  -> {memory_verse}")
 
-    print("Finding latest sermon...")
-    sermon = get_latest_sermon()
-    print(f"  -> {sermon['title']} ({sermon['url']})")
+    sermon_title = "Sunday Sermon"
+    sermon_url = "https://rlcf.church/"
 
-    print("Extracting YouTube video ID...")
-    video_id = get_youtube_id_from_sermon_page(sermon["url"])
-    print(f"  -> {video_id}")
+    if args.video or os.environ.get("YOUTUBE_VIDEO_ID"):
+        raw_vid = args.video or os.environ["YOUTUBE_VIDEO_ID"]
+        video_id = extract_video_id(raw_vid)
+        sermon_url = f"https://www.youtube.com/watch?v={video_id}"
+        print(f"Using provided YouTube video ID: {video_id}")
+    else:
+        print("Finding latest sermon on rlcf.church...")
+        sermon = get_latest_sermon()
+        sermon_title = sermon["title"]
+        sermon_url = sermon["url"]
+        print(f"  -> {sermon_title} ({sermon_url})")
 
-    print("Pulling transcript via yt-dlp...")
+        print("Extracting YouTube video ID...")
+        video_id = get_youtube_id_from_sermon_page(sermon_url)
+        print(f"  -> {video_id}")
+
+    print("Extracting sermon transcript...")
     transcript = get_transcript(video_id)
     print(f"  -> {len(transcript)} characters of transcript")
 
@@ -468,22 +640,32 @@ def main():
     print(f"  -> {len(cited_scriptures)} candidate reference(s): "
           f"{', '.join(c['reference'] for c in cited_scriptures) or '(none)'}")
 
-    print("Generating Monday-Saturday study schedule with Claude...")
-    days = generate_schedule(memory_verse, sermon["title"], transcript, cited_scriptures)
+    if args.dry_run:
+        print("\n=== DRY RUN MODE: Extraction complete! ===")
+        print(f"Memory Verse: {memory_verse}")
+        print(f"Sermon: {sermon_title} ({video_id})")
+        print(f"Transcript length: {len(transcript)} characters")
+        print(f"Citations detected: {len(cited_scriptures)}")
+        return
 
-    # Saved as JSON, keyed by the Sunday date this week's plan belongs to.
-    # send_daily_portion.py reads this file each day (Mon-Sat) and sends
-    # just that day's entry.
+    print("Generating Monday-Saturday study schedule...")
+    days = generate_schedule(
+        memory_verse,
+        sermon_title,
+        transcript,
+        cited_scriptures,
+        provider=args.provider
+    )
+
     date_str = datetime.now().strftime("%Y-%m-%d")
     out_path = os.path.join(OUTPUT_DIR, f"week-{date_str}.json")
 
     payload = {
         "week_of": date_str,
         "memory_verse": memory_verse,
-        "sermon_title": sermon["title"],
-        "sermon_url": sermon["url"],
+        "sermon_title": sermon_title,
+        "sermon_url": sermon_url,
         "days": days,
-        # Kept for transparency/debugging — not used by send_daily_portion.py.
         "cited_scriptures_detected": cited_scriptures,
     }
 

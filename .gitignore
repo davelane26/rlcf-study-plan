@@ -2,3 +2,5 @@ youtube_cookies.txt
 *.vtt
 __pycache__/
 *.pyc
+*preview*.html
+
