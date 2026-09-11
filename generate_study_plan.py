@@ -27,6 +27,7 @@ import os
 import re
 import sys
 import json
+import shutil
 import subprocess
 from datetime import datetime
 
@@ -673,6 +674,11 @@ def main():
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
     print(f"Saved this week's plan to {out_path}")
+
+    latest_path = os.path.join(OUTPUT_DIR, "latest.json")
+    shutil.copyfile(out_path, latest_path)
+    print(f"Copied latest plan to {latest_path}")
+
     print("Delivery happens separately each day via send_daily_portion.py")
 
 

@@ -29,7 +29,7 @@ Two automated steps, no manual intervention after setup:
    (auto-generated or manual) and convert them to plain text.
 5. `generate_schedule()` sends the verse + transcript to Claude and gets
    back a structured 6-day (Mon–Sat) plan as JSON.
-6. Saves it to `output/week-YYYY-MM-DD.json`.
+6. Saves it to `output/week-YYYY-MM-DD.json` and copies it to `output/latest.json` (served over GitHub Pages via root `index.html`).
 
 **`send_daily_portion.py`** (runs every morning, Mon–Sat):
 1. Finds the latest `week-*.json` file.
@@ -49,7 +49,7 @@ Two automated steps, no manual intervention after setup:
 ### 2. Create a GitHub repo
 - Create a new repo (can be private).
 - Add all files in this project: `generate_study_plan.py`,
-  `send_daily_portion.py`, `requirements.txt`,
+  `send_daily_portion.py`, `requirements.txt`, `index.html`,
   `.github/workflows/weekly-study-plan.yml`,
   `.github/workflows/daily-study-portion.yml`, this `README.md`.
 - Ensure `output/` exists for commits.
