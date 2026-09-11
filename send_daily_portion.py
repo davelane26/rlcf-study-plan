@@ -30,15 +30,18 @@ import smtplib
 import argparse
 import webbrowser
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import requests
 
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+APP_URL = "https://davelane26.github.io/devotional-companion/"
 
 
 def bible_gateway_url(ref):
@@ -71,11 +74,35 @@ def get_entry_for_day(week_data, target_day=None):
     return None, day_name
 
 
-def format_email_body(week_data, entry, today_name):
+def get_today_book_chapter(target_date_str=None):
+    """Fetch today's Book Study chapter from book-schedule.json (graceful fallback)."""
+    try:
+        url = "https://davelane26.github.io/book-study-plan/output/book-schedule.json"
+        resp = requests.get(url, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            query_date = target_date_str or datetime.now().strftime("%Y-%m-%d")
+            item = data.get("schedule", {}).get(query_date)
+            if item and item.get("chapters"):
+                ch = item["chapters"][0]
+                return {
+                    "number": ch.get("number"),
+                    "title": ch.get("title"),
+                    "author": data.get("book_author", "Zac Poonen"),
+                    "book_title": data.get("book_title", "Basic Christian Teachings"),
+                }
+    except Exception as e:
+        print(f"Note: Could not fetch book study schedule: {e}")
+    return None
+
+
+def format_email_body(week_data, entry, today_name, book_chapter=None):
     """Plain-text email body (and fallback for non-HTML email clients)."""
     lines = [
         f"{today_name}'s Bible Study",
         "=" * (len(today_name) + 15),
+        "",
+        f"📱 Devotional Companion App: {APP_URL}",
         "",
         f"This week's memory verse: {week_data.get('memory_verse', '')}",
         f"From Sunday's message: {week_data.get('sermon_title', '')}",
@@ -87,12 +114,25 @@ def format_email_body(week_data, entry, today_name):
         "",
         f"MESSAGE RECAP: {entry.get('message_recap', '')}",
         "",
-        f'QUOTE FROM THE MESSAGE: "{entry.get("message_quote", "")}"',
-        "",
-        f"TIES TO THE MEMORY VERSE: {entry.get('related_scripture', '')}",
-        "",
-        f"REFLECT ON THE VERSE: {entry.get('verse_reflection', '')}",
+        f"QUOTE FROM THE MESSAGE: \"{entry.get('message_quote', '')}\"",
     ]
+
+    rel = entry.get("related_scripture")
+    if rel:
+        lines.extend([
+            "",
+            f"TIES TO THE MEMORY VERSE: {rel}",
+        ])
+
+    if book_chapter:
+        lines.extend([
+            "",
+            "--------------------------------------------------",
+            f"📚 TODAY'S COMPANION BOOK STUDY: Chapter {book_chapter['number']}: {book_chapter['title']}",
+            f"From '{book_chapter['book_title']}' by {book_chapter['author']}",
+            f"Listen with follow-along audio in the app: {APP_URL}",
+            "--------------------------------------------------",
+        ])
 
     prayer = entry.get("daily_prayer")
     if prayer:
@@ -101,11 +141,17 @@ def format_email_body(week_data, entry, today_name):
             f"TODAY'S PRAYER: {prayer}",
         ])
 
+    lines.extend([
+        "",
+        "Open today's full study with Zac Poonen follow-along audio & reflection notes:",
+        f"{APP_URL}",
+    ])
+
     return "\n".join(lines)
 
 
-def format_email_html(week_data, entry, today_name):
-    """Generate responsive, beautifully styled HTML email with clickable BibleGateway links."""
+def format_email_html(week_data, entry, today_name, book_chapter=None):
+    """Generate responsive, beautifully styled HTML email with clickable links."""
     passages_html = []
     for p in entry.get("passages", []):
         url = bible_gateway_url(p)
@@ -117,6 +163,25 @@ def format_email_html(week_data, entry, today_name):
     rel = entry.get("related_scripture", "")
     rel_url = bible_gateway_url(rel) if rel else ""
     rel_markup = f'<a href="{rel_url}" target="_blank" style="display: inline-block; background-color: #f5f3ff; color: #6d28d9; text-decoration: none; padding: 7px 14px; border-radius: 6px; font-weight: 600; font-size: 13px; border: 1px solid #ddd6fe;">🔗 {rel}</a>' if rel else ""
+
+    book_study_section = ""
+    if book_chapter:
+        book_study_section = f"""
+        <div style="background-color: #eef2ff; border: 1px solid #c7d2fe; border-left: 4px solid #6366f1; border-radius: 8px; padding: 18px 20px; margin-bottom: 24px;">
+          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #4338ca; margin-bottom: 6px;">
+            📚 Today's Companion Book Study
+          </div>
+          <div style="font-size: 16px; font-weight: 700; color: #1e1b4b; margin-bottom: 4px;">
+            Chapter {book_chapter['number']}: {book_chapter['title']}
+          </div>
+          <div style="font-size: 13px; color: #4338ca; margin-bottom: 14px;">
+            From <em>{book_chapter['book_title']}</em> by {book_chapter['author']}
+          </div>
+          <a href="{APP_URL}" target="_blank" style="display: inline-block; background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+            🎧 Listen with Follow-Along Audio in App &rarr;
+          </a>
+        </div>
+        """
 
     prayer = entry.get("daily_prayer", "")
     prayer_section = ""
@@ -150,8 +215,15 @@ def format_email_html(week_data, entry, today_name):
       <h1 style="margin: 0 0 10px 0; font-size: 22px; line-height: 1.35; font-weight: 700; color: #f8fafc;">
         {entry.get('focus', 'Daily Study')}
       </h1>
-      <div style="font-size: 13px; color: #cbd5e1; line-height: 1.4;">
+      <div style="font-size: 13px; color: #cbd5e1; line-height: 1.4; margin-bottom: 14px;">
         From Sunday's Message: <a href="{week_data.get('sermon_url', '#')}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 500;">{week_data.get('sermon_title', '')} &rarr;</a>
+      </div>
+
+      <!-- App Deep Link Button -->
+      <div>
+        <a href="{APP_URL}" target="_blank" style="display: inline-block; background-color: #3b82f6; color: #ffffff; text-decoration: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.15);">
+          📱 Open in Devotional Companion App &rarr;
+        </a>
       </div>
     </div>
 
@@ -198,35 +270,25 @@ def format_email_html(week_data, entry, today_name):
         </div>
       </div>
 
-      <!-- Cross Reference / Related Scripture -->
-      <div style="margin-bottom: 22px;">
-        <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; margin-bottom: 6px;">
-          Ties to the Memory Verse
-        </div>
-        <div>
-          {rel_markup}
-        </div>
-      </div>
+      <!-- Ties to the Memory Verse (if present) -->
+      {"<div style='margin-bottom: 22px;'><div style='font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; margin-bottom: 6px;'>Ties to the Memory Verse</div><div>" + rel_markup + "</div></div>" if rel else ""}
 
-      <!-- Zac Poonen Reflection Box -->
-      <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #d97706; border-radius: 8px; padding: 16px 18px;">
-        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #b45309; margin-bottom: 8px;">
-          🔍 Reflect on the Verse &bull; Personal Examination
-        </div>
-        <div style="font-size: 14px; color: #78350f; line-height: 1.6;">
-          {entry.get('verse_reflection', '')}
-        </div>
-      </div>
+      <!-- Book Study Section -->
+      {book_study_section}
 
       {prayer_section}
 
     </div>
 
     <!-- Footer -->
-    <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 30px; text-align: center; font-size: 12px; color: #64748b; line-height: 1.5;">
-      <div>Redstone Christian Life Fellowship &bull; Daily Bible Study Plan</div>
-      <div style="margin-top: 4px;">
-        <a href="{week_data.get('sermon_url', '#')}" target="_blank" style="color: #2563eb; text-decoration: none;">Watch or Listen to Full Sunday Sermon</a>
+    <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 30px; text-align: center; font-size: 12px; color: #64748b; line-height: 1.6;">
+      <div style="margin-bottom: 8px;">
+        <a href="{APP_URL}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">
+          📱 Open Today's Study in Devotional Companion App
+        </a>
+      </div>
+      <div>
+        Redstone Christian Life Fellowship &bull; <a href="{week_data.get('sermon_url', '#')}" target="_blank" style="color: #64748b; text-decoration: underline;">Watch Sunday Sermon</a>
       </div>
     </div>
 
@@ -237,11 +299,15 @@ def format_email_html(week_data, entry, today_name):
     return html
 
 
-def format_slack_message(week_data, entry, today_name):
-    """Generate Slack Block Kit payload with rich mrkdwn and fallbacks."""
+def format_slack_message(week_data, entry, today_name, book_chapter=None):
+    """Generate Slack Block Kit payload with rich mrkdwn and direct app links."""
     passages_text = " • ".join([f"<{bible_gateway_url(p)}|*{p}*>" for p in entry.get("passages", [])])
     rel_scripture = entry.get("related_scripture", "")
     rel_text = f"<{bible_gateway_url(rel_scripture)}|*{rel_scripture}*>" if rel_scripture else ""
+
+    mem_verse = week_data.get('memory_verse', '')
+    sermon_title = week_data.get('sermon_title', '')
+    sermon_url = week_data.get('sermon_url', '#')
 
     blocks = [
         {
@@ -253,11 +319,18 @@ def format_slack_message(week_data, entry, today_name):
             }
         },
         {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*<https://davelane26.github.io/devotional-companion/|📱 Open in Devotional Companion App (Audio + Follow-Along + Journal) →>*"
+            }
+        },
+        {
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*Memory Verse:* {week_data.get('memory_verse', '')}\n*Sermon:* <{week_data.get('sermon_url', '#')}|{week_data.get('sermon_title', '')}>"
+                    "text": f"*Memory Verse:* {mem_verse}\n*Sermon:* <{sermon_url}|{sermon_title}>"
                 }
             ]
         },
@@ -283,21 +356,30 @@ def format_slack_message(week_data, entry, today_name):
                 "text": f"*Quote from the Message:*\n> \"_{entry.get('message_quote', '')}_\""
             }
         },
-        {
+    ]
+
+    if rel_text:
+        blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": f"*Ties to the Memory Verse:*\n{rel_text}"
             }
-        },
-        {
+        })
+
+    if book_chapter:
+        b_num = book_chapter['number']
+        b_title = book_chapter['title']
+        b_book = book_chapter['book_title']
+        b_auth = book_chapter['author']
+        blocks.append({"type": "divider"})
+        blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Reflect on the Verse (Personal Examination):*\n{entry.get('verse_reflection', '')}"
+                "text": f"*📚 Today's Companion Book Study: Chapter {b_num}: {b_title}*\n_From '{b_book}' by {b_auth}_\n👉 *<https://davelane26.github.io/devotional-companion/|Listen with follow-along audio in the app →>*"
             }
-        }
-    ]
+        })
 
     prayer = entry.get("daily_prayer")
     if prayer:
@@ -311,9 +393,9 @@ def format_slack_message(week_data, entry, today_name):
 
     fallback_text = (
         f"*{today_name}'s Bible Study: {entry.get('focus', '')}*\n"
+        f"App: {APP_URL}\n"
         f"Read: {', '.join(entry.get('passages', []))}\n"
-        f"Recap: {entry.get('message_recap', '')}\n"
-        f"Reflect: {entry.get('verse_reflection', '')}"
+        f"Recap: {entry.get('message_recap', '')}"
     )
 
     return fallback_text, blocks
@@ -355,18 +437,27 @@ def send_email(subject, plain_body, html_body=None):
         msg["From"] = os.environ["EMAIL_FROM"]
         msg["To"] = os.environ["EMAIL_TO"]
 
-    with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ["SMTP_PORT"])) as server:
-        server.starttls()
-        server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
-        server.sendmail(os.environ["EMAIL_FROM"], [os.environ["EMAIL_TO"]], msg.as_string())
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ["SMTP_PORT"])
+    user = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASS"]
 
-    print(f"Emailed {subject} to {os.environ['EMAIL_TO']} (HTML + plain text)")
+    print(f"Connecting to SMTP server {host}:{port}...")
+    with smtplib.SMTP(host, port, timeout=30) as server:
+        server.ehlo()
+        if port != 25:
+            server.starttls()
+            server.ehlo()
+        server.login(user, password)
+        server.send_message(msg)
+
+    print(f"Email successfully sent to {os.environ['EMAIL_TO']}")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Deliver or preview RLCF daily Bible study portion.")
-    parser.add_argument("--preview", action="store_true", help="Generate HTML preview file and open in web browser")
-    parser.add_argument("--day", type=str, choices=DAYS, help="Override day of week (e.g. Monday, Tuesday)")
+    parser = argparse.ArgumentParser(description="Deliver or preview today's RLCF Bible study portion.")
+    parser.add_argument("--preview", action="store_true", help="Generate HTML preview and open in browser")
+    parser.add_argument("--day", type=str, choices=DAYS, help="Override today's day of week (e.g. Monday)")
     parser.add_argument("--dry-run", action="store_true", help="Format and print output without sending email or Slack")
     return parser.parse_args()
 
@@ -384,8 +475,20 @@ def main():
               f"(Sunday is service day / plan-generation day).")
         return
 
-    plain_body = format_email_body(week_data, entry, today_name)
-    html_body = format_email_html(week_data, entry, today_name)
+    # Calculate date for today_name if --day was supplied
+    target_date_str = None
+    if args.day and week_data.get("week_of"):
+        try:
+            week_start = datetime.strptime(week_data["week_of"], "%Y-%m-%d")
+            day_idx = DAYS.index(args.day)
+            target_date_str = (week_start + timedelta(days=day_idx)).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    book_chapter = get_today_book_chapter(target_date_str=target_date_str)
+
+    plain_body = format_email_body(week_data, entry, today_name, book_chapter)
+    html_body = format_email_html(week_data, entry, today_name, book_chapter)
     subject = f"Bible Study — {today_name}: {entry.get('focus', '')}"
 
     # Handle preview flag
@@ -399,12 +502,16 @@ def main():
     if args.dry_run:
         print("\n=== DRY RUN MODE: Plain-Text Email ===")
         print(plain_body)
+        print("\n=== DRY RUN MODE: Slack Fallback & Blocks ===")
+        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name, book_chapter)
+        print(slack_text)
+        print(f"Slack blocks count: {len(slack_blocks)}")
         print("\n=== DRY RUN MODE: HTML email generated successfully ===")
         return
 
     if not args.preview:
         send_email(subject, plain_body, html_body)
-        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name)
+        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name, book_chapter)
         send_slack(slack_text, slack_blocks)
 
 
