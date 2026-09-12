@@ -44,11 +44,12 @@ DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 APP_URL = "https://davelane26.github.io/devotional-companion/"
 
 
-def bible_gateway_url(ref):
-    """Generate a direct BibleGateway passage link in NASB 1995."""
+def bible_gateway_url(ref, version=None):
+    """Generate a direct BibleGateway passage link."""
+    v = version or os.environ.get("BIBLE_TRANSLATION", "NASB1995")
     clean_ref = ref.strip()
     encoded = urllib.parse.quote_plus(clean_ref)
-    return f"https://www.biblegateway.com/passage/?search={encoded}&version=NASB1995"
+    return f"https://www.biblegateway.com/passage/?search={encoded}&version={v}"
 
 
 def get_latest_week_file():
@@ -150,18 +151,18 @@ def format_email_body(week_data, entry, today_name, book_chapter=None):
     return "\n".join(lines)
 
 
-def format_email_html(week_data, entry, today_name, book_chapter=None):
+def format_email_html(week_data, entry, today_name, book_chapter=None, translation=None):
     """Generate responsive, beautifully styled HTML email with clickable links."""
     passages_html = []
     for p in entry.get("passages", []):
-        url = bible_gateway_url(p)
+        url = bible_gateway_url(p, version=translation)
         passages_html.append(
             f'<a href="{url}" target="_blank" style="display: inline-block; background-color: #eff6ff; color: #1d4ed8; text-decoration: none; padding: 7px 14px; border-radius: 6px; font-weight: 600; font-size: 13px; margin: 3px 4px 3px 0; border: 1px solid #bfdbfe;">📖 {p}</a>'
         )
     passages_markup = "".join(passages_html) if passages_html else "<em>No passages listed</em>"
 
     rel = entry.get("related_scripture", "")
-    rel_url = bible_gateway_url(rel) if rel else ""
+    rel_url = bible_gateway_url(rel, version=translation) if rel else ""
     rel_markup = f'<a href="{rel_url}" target="_blank" style="display: inline-block; background-color: #f5f3ff; color: #6d28d9; text-decoration: none; padding: 7px 14px; border-radius: 6px; font-weight: 600; font-size: 13px; border: 1px solid #ddd6fe;">🔗 {rel}</a>' if rel else ""
 
     book_study_section = ""
@@ -299,11 +300,11 @@ def format_email_html(week_data, entry, today_name, book_chapter=None):
     return html
 
 
-def format_slack_message(week_data, entry, today_name, book_chapter=None):
+def format_slack_message(week_data, entry, today_name, book_chapter=None, translation=None):
     """Generate Slack Block Kit payload with rich mrkdwn and direct app links."""
-    passages_text = " • ".join([f"<{bible_gateway_url(p)}|*{p}*>" for p in entry.get("passages", [])])
+    passages_text = " • ".join([f"<{bible_gateway_url(p, version=translation)}|*{p}*>" for p in entry.get("passages", [])])
     rel_scripture = entry.get("related_scripture", "")
-    rel_text = f"<{bible_gateway_url(rel_scripture)}|*{rel_scripture}*>" if rel_scripture else ""
+    rel_text = f"<{bible_gateway_url(rel_scripture, version=translation)}|*{rel_scripture}*>" if rel_scripture else ""
 
     mem_verse = week_data.get('memory_verse', '')
     sermon_title = week_data.get('sermon_title', '')
@@ -458,6 +459,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Deliver or preview today's RLCF Bible study portion.")
     parser.add_argument("--preview", action="store_true", help="Generate HTML preview and open in browser")
     parser.add_argument("--day", type=str, choices=DAYS, help="Override today's day of week (e.g. Monday)")
+    parser.add_argument("--translation", type=str, default=os.environ.get("BIBLE_TRANSLATION", "NASB1995"),
+                        help="Bible translation for passage links (e.g. NASB1995, NKJV, ESV, NIV, KJV)")
     parser.add_argument("--dry-run", action="store_true", help="Format and print output without sending email or Slack")
     return parser.parse_args()
 
@@ -488,7 +491,7 @@ def main():
     book_chapter = get_today_book_chapter(target_date_str=target_date_str)
 
     plain_body = format_email_body(week_data, entry, today_name, book_chapter)
-    html_body = format_email_html(week_data, entry, today_name, book_chapter)
+    html_body = format_email_html(week_data, entry, today_name, book_chapter, translation=args.translation)
     subject = f"Bible Study — {today_name}: {entry.get('focus', '')}"
 
     # Handle preview flag
@@ -503,7 +506,7 @@ def main():
         print("\n=== DRY RUN MODE: Plain-Text Email ===")
         print(plain_body)
         print("\n=== DRY RUN MODE: Slack Fallback & Blocks ===")
-        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name, book_chapter)
+        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name, book_chapter, translation=args.translation)
         print(slack_text)
         print(f"Slack blocks count: {len(slack_blocks)}")
         print("\n=== DRY RUN MODE: HTML email generated successfully ===")
@@ -511,7 +514,7 @@ def main():
 
     if not args.preview:
         send_email(subject, plain_body, html_body)
-        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name, book_chapter)
+        slack_text, slack_blocks = format_slack_message(week_data, entry, today_name, book_chapter, translation=args.translation)
         send_slack(slack_text, slack_blocks)
 
 
