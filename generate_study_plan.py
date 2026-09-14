@@ -229,11 +229,37 @@ def get_transcript_via_ytdlp(video_id):
         return None
 
 
-def get_transcript(video_id):
+TIMESTAMP_LINE = re.compile(r"^\s*(\d{1,2}:)?\d{1,2}:\d{2}\s*$")
+
+
+def load_manual_transcript(path):
+    """Read a transcript pasted from YouTube's "Show transcript" panel (or any
+    plain text). Drops timestamp-only lines and collapses whitespace."""
+    with open(path, encoding="utf-8") as f:
+        lines = [l.strip() for l in f.read().splitlines()]
+    words = [l for l in lines if l and not TIMESTAMP_LINE.match(l)]
+    return re.sub(r"\s+", " ", " ".join(words)).strip()
+
+
+def get_transcript(video_id, week_of=None):
     """Multi-tier transcript extraction:
+    Tier 0: manual transcript file (TRANSCRIPT_FILE / --transcript-file, or
+            output/transcript-<week_of>.txt) - bypasses YouTube entirely
     Tier 1: youtube-transcript-api (no cookies, no bot challenges)
     Tier 2: yt-dlp fallback (with cookies if configured)
     """
+    candidates = [os.environ.get("TRANSCRIPT_FILE")]
+    if week_of:
+        candidates.append(os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt"))
+    for path in candidates:
+        if path and os.path.exists(path) and os.path.getsize(path) > 0:
+            print(f"  Tier 0: Using manual transcript file {path}")
+            text = load_manual_transcript(path)
+            if text:
+                print(f"  -> Loaded {len(text)} characters from file.")
+                return text
+            print("  (file was empty after cleanup; falling through to YouTube)")
+
     print("  Tier 1: Trying youtube-transcript-api...")
     text = get_transcript_via_api(video_id)
     if text:
@@ -616,6 +642,8 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true", help="Fetch sermon & captions and exit before LLM call")
     parser.add_argument("--force", action="store_true",
                         help="Regenerate even if this week's plan already exists")
+    parser.add_argument("--transcript-file", type=str,
+                        help="Plain-text transcript to use instead of fetching from YouTube")
     return parser.parse_args()
 
 
@@ -625,6 +653,8 @@ def main():
 
     date_str = current_week_start()
     out_path = os.path.join(OUTPUT_DIR, f"week-{date_str}.json")
+    if args.transcript_file:
+        os.environ["TRANSCRIPT_FILE"] = args.transcript_file
     force = args.force or os.environ.get("FORCE_REGENERATE", "").lower() in ("1", "true", "yes")
     if os.path.exists(out_path) and not force and not args.dry_run:
         print(f"Plan for week of {date_str} already exists at {out_path}; nothing to do.")
@@ -662,7 +692,7 @@ def main():
         print(f"  -> {video_id}")
 
     print("Extracting sermon transcript...")
-    transcript = get_transcript(video_id)
+    transcript = get_transcript(video_id, week_of=date_str)
     print(f"  -> {len(transcript)} characters of transcript")
 
     print("Scanning transcript for scripture references the speaker cited...")
