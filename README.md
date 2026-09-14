@@ -77,7 +77,7 @@ Optional, in addition to email:
   (posts formatted Block Kit messages alongside email).
 
 ### 4. Confirm the schedules
-- **Generation** (`weekly-study-plan.yml`) runs automatically at 10:00 PM Mountain Time
+- **Generation** (`weekly-study-plan.yml`) runs automatically at 10:00 PM Mountain Time Sunday, with automatic retries at 1 AM, 5 AM Monday and 10 PM Monday MT if an earlier run failed (a run exits early once the week's plan exists). It can also be run manually from the Actions tab with an optional YouTube video ID; it was previously described as running
   Sundays (04:00 UTC Monday) after the sermon has posted.
 - **Daily send** (`daily-study-portion.yml`) runs 7:00 AM Mountain Time,
   Monday through Saturday.

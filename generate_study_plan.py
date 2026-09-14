@@ -29,7 +29,7 @@ import sys
 import json
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from bs4 import BeautifulSoup
@@ -210,10 +210,17 @@ def get_transcript_via_ytdlp(video_id):
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             print(f"  (yt-dlp exited with {result.returncode})")
+            # Show the tail of stderr so the Actions log says WHY it failed
+            # (bot check, expired cookies, no captions yet, etc.).
+            err_lines = [l for l in result.stderr.strip().splitlines() if l.strip()]
+            for line in err_lines[-12:]:
+                print(f"    yt-dlp: {line}")
             return None
 
         vtt_path = os.path.join(OUTPUT_DIR, f"{video_id}.en.vtt")
         if not os.path.exists(vtt_path):
+            print("  (yt-dlp succeeded but wrote no English .vtt file; "
+                  "captions may not be published yet)")
             return None
 
         return vtt_to_plain_text(vtt_path)
@@ -588,6 +595,18 @@ exactly 6 objects in this shape, in Monday-through-Saturday order:
     return days
 
 
+def current_week_start():
+    """Monday of the current week, as YYYY-MM-DD.
+
+    The Sunday-night run happens after 04:00 UTC, so it is already Monday
+    in UTC. If a run is retried later in the week it still names the same
+    week-*.json file, which is what send_daily_portion.py expects.
+    """
+    today = datetime.now().date()
+    monday = today - timedelta(days=today.weekday())
+    return monday.strftime("%Y-%m-%d")
+
+
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description="Generate RLCF weekly Bible study plan.")
@@ -595,12 +614,22 @@ def parse_args():
     parser.add_argument("--verse", type=str, help="Specify memory verse text directly")
     parser.add_argument("--provider", type=str, choices=["gemini", "anthropic"], help="LLM provider")
     parser.add_argument("--dry-run", action="store_true", help="Fetch sermon & captions and exit before LLM call")
+    parser.add_argument("--force", action="store_true",
+                        help="Regenerate even if this week's plan already exists")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    date_str = current_week_start()
+    out_path = os.path.join(OUTPUT_DIR, f"week-{date_str}.json")
+    force = args.force or os.environ.get("FORCE_REGENERATE", "").lower() in ("1", "true", "yes")
+    if os.path.exists(out_path) and not force and not args.dry_run:
+        print(f"Plan for week of {date_str} already exists at {out_path}; nothing to do.")
+        print("(Pass --force or set FORCE_REGENERATE=1 to regenerate.)")
+        return
 
     if args.verse:
         print("Using memory verse from argument...")
@@ -657,9 +686,6 @@ def main():
         cited_scriptures,
         provider=args.provider
     )
-
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    out_path = os.path.join(OUTPUT_DIR, f"week-{date_str}.json")
 
     payload = {
         "week_of": date_str,

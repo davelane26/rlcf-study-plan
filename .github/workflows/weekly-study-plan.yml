@@ -2,9 +2,27 @@ name: Weekly Bible Study Plan (Generate)
 
 on:
   schedule:
-    # Runs Sunday night at 10:00 PM Mountain Time (04:00 UTC Monday)
-    - cron: '0 4 * * 1'
-  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
+    # Sunday night 10:00 PM Mountain Time = 04:00 UTC Monday.
+    # Extra Monday/Tuesday slots are automatic retries: the script exits
+    # early ("nothing to do") once this week's plan exists, so the retries
+    # only matter if an earlier run failed (YouTube IP block, captions not
+    # processed yet, etc.).
+    - cron: '0 4 * * 1'    # Mon 04:00 UTC (Sun 10 PM MDT)
+    - cron: '0 7 * * 1'    # Mon 07:00 UTC (Mon 1 AM MDT)
+    - cron: '0 11 * * 1'   # Mon 11:00 UTC (Mon 5 AM MDT) - before the 13:00 UTC daily send
+    - cron: '0 4 * * 2'    # Tue 04:00 UTC last chance
+  workflow_dispatch:
+    inputs:
+      video_id:
+        description: "YouTube video ID or URL to use instead of auto-detecting the latest sermon"
+        required: false
+        default: ""
+      force:
+        description: "Regenerate even if this week's plan already exists"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 permissions:
   contents: write   # so the final step can commit output/week-*.json back to the repo
@@ -42,6 +60,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_COOKIES_FILE: youtube_cookies.txt
+          YOUTUBE_VIDEO_ID: ${{ github.event.inputs.video_id }}
+          FORCE_REGENERATE: ${{ github.event.inputs.force }}
         run: python generate_study_plan.py
 
       - name: Clean up cookies file
@@ -53,5 +73,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/week-*.json output/latest.json
-          git commit -m "Add week's study plan $(date +%Y-%m-%d)" || echo "Nothing to commit"
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+          git commit -m "Add week's study plan $(date +%Y-%m-%d)"
+          git pull --rebase
           git push
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set; skipping notification"
+            exit 0
+          fi
+          payload=$(printf '{"text":":x: Weekly Bible study plan generation failed (run #%s). Check the log or re-run manually with a video ID: %s"}' \
+            "${{ github.run_number }}" "$RUN_URL")
+          curl -sS -X POST -H 'Content-Type: application/json' -d "$payload" "$SLACK_WEBHOOK_URL"
