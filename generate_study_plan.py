@@ -229,16 +229,27 @@ def get_transcript_via_ytdlp(video_id):
         return None
 
 
+# A line that is only a timestamp ("12:34" or "1:02:03").
 TIMESTAMP_LINE = re.compile(r"^\s*(\d{1,2}:)?\d{1,2}:\d{2}\s*$")
+# Copying YouTube's transcript panel glues the timestamp and its spoken
+# duration onto the text: "1:021 minute, 2 secondsAnd as I think..."
+INLINE_STAMP = re.compile(
+    r"^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}"
+    r"(?:\s*\d+\s*(?:hours?|minutes?|seconds?),?)*\s*"
+)
 
 
 def load_manual_transcript(path):
     """Read a transcript pasted from YouTube's "Show transcript" panel (or any
-    plain text). Drops timestamp-only lines and collapses whitespace."""
+    plain text). Drops timestamps and collapses whitespace."""
     with open(path, encoding="utf-8") as f:
         lines = [l.strip() for l in f.read().splitlines()]
-    words = [l for l in lines if l and not TIMESTAMP_LINE.match(l)]
-    return re.sub(r"\s+", " ", " ".join(words)).strip()
+    cleaned = []
+    for l in lines:
+        if not l or TIMESTAMP_LINE.match(l):
+            continue
+        cleaned.append(INLINE_STAMP.sub("", l, count=1))
+    return re.sub(r"\s+", " ", " ".join(cleaned)).strip()
 
 
 def get_transcript(video_id, week_of=None):
