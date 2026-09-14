@@ -76,6 +76,30 @@ Optional, in addition to email:
 - `SLACK_WEBHOOK_URL` — an Incoming Webhook URL from a Slack app
   (posts formatted Block Kit messages alongside email).
 
+### 3b. YouTube cookies (needed on GitHub-hosted runners)
+
+YouTube blocks caption requests from cloud IPs (GitHub Actions included)
+with "Sign in to confirm you're not a bot". The generator gets past that
+with a `YOUTUBE_COOKIES` secret containing a Netscape-format cookies file
+for a logged-in YouTube account. Those cookies **expire or get rotated**
+every few weeks, and when they do the weekly run fails with
+`The provided YouTube account cookies are no longer valid` in the log.
+
+To (re)export them so they last as long as possible (per the
+[yt-dlp wiki](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)):
+
+1. Open a **private/incognito** window and sign in to youtube.com
+   (a throwaway Google account is safest; YouTube may eventually flag
+   the account).
+2. In that same window open <https://www.youtube.com/robots.txt>, then
+   export cookies with a "Get cookies.txt LOCALLY" style extension.
+3. **Close the private window** without signing out. Do not open YouTube
+   again in that browser session; using the account in a browser is what
+   rotates the cookies and invalidates the exported file.
+4. Paste the file's full contents into the `YOUTUBE_COOKIES` repository
+   secret, then re-run the **Weekly Bible Study Plan (Generate)** workflow
+   from the Actions tab.
+
 ### 4. Confirm the schedules
 - **Generation** (`weekly-study-plan.yml`) runs automatically at 10:00 PM
   Mountain Time Sunday (04:00 UTC Monday) after the sermon has posted.
