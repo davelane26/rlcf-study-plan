@@ -3,4 +3,8 @@ youtube_cookies.txt
 __pycache__/
 *.pyc
 *preview*.html
+.env
+.env.local
+.env.*
+!.env.example
 

@@ -119,21 +119,37 @@ Both are also runnable on-demand from the repo's **Actions** tab → select the 
 
 ## Running locally & Previewing
 
+### 1. Configure `.env`
+Copy `.env.example` to `.env` and fill in your API key:
+```bash
+cp .env.example .env
+```
+Add your free Gemini API key:
+```ini
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+### 2. Install dependencies & Run
 ```bash
 pip install -r requirements.txt
 
+# Run full study plan generation (uses Gemini for transcription + schedule generation):
+python generate_study_plan.py
+
 # Test transcript and scripture extraction without calling LLMs:
 python generate_study_plan.py --dry-run
+
+# Run with a local manual transcript file (skips YouTube and Gemini API transcription):
+python generate_study_plan.py --transcript-file output/transcript-2026-09-14.txt
+
+# Force regenerate even if this week's plan already exists:
+python generate_study_plan.py --force
 
 # Preview today's formatted email in your web browser:
 python send_daily_portion.py --preview
 
 # Preview a specific day:
 python send_daily_portion.py --preview --day Tuesday
-
-# Generate plan using Gemini (free) or Anthropic:
-export GEMINI_API_KEY=your-gemini-key
-python generate_study_plan.py
 ```
 
 

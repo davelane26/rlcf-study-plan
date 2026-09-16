@@ -44,6 +44,29 @@ DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 APP_URL = "https://davelane26.github.io/devotional-companion/"
 
 
+def load_dotenv(filepath=".env"):
+    """Optionally load environment variables from a local .env file."""
+    target = filepath if os.path.isabs(filepath) else os.path.join(os.path.dirname(__file__), filepath)
+    if not os.path.exists(target):
+        return
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception as e:
+        print(f"Warning: could not read {target}: {e}")
+
+
+load_dotenv()
+
+
 def bible_gateway_url(ref, version=None):
     """Generate a direct BibleGateway passage link."""
     v = version or os.environ.get("BIBLE_TRANSLATION", "NASB1995")
