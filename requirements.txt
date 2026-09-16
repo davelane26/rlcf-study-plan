@@ -3,3 +3,4 @@ beautifulsoup4
 anthropic
 yt-dlp
 youtube-transcript-api
+google-genai

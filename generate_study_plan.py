@@ -14,10 +14,11 @@ Intended to be run by a scheduler (cron / GitHub Actions) every
 Sunday night. See README.md for setup instructions.
 
 Requirements:
-  pip install requests beautifulsoup4 anthropic yt-dlp
+  pip install -r requirements.txt
 
-Environment variables required:
-  ANTHROPIC_API_KEY   - your Anthropic API key
+Environment variables (at least one LLM key required):
+  GEMINI_API_KEY      - Google Gemini API key (supports study plan generation & cloud transcript fallback)
+  ANTHROPIC_API_KEY   - Anthropic API key (alternative LLM provider)
 
 Optional (for email delivery):
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO, EMAIL_FROM
@@ -252,12 +253,61 @@ def load_manual_transcript(path):
     return re.sub(r"\s+", " ", " ".join(cleaned)).strip()
 
 
+def get_transcript_via_gemini(video_id):
+    """Fallback to Gemini API (gemini-2.5-flash) to transcribe the YouTube video URL directly.
+
+    Uses the google-genai SDK with types.Part.from_uri to request a full verbatim transcript,
+    bypassing YouTube IP blocks, bot challenges, or missing caption tracks.
+    """
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_key:
+        print("  [Gemini Fallback] GEMINI_API_KEY environment variable not set.")
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        print("  [Gemini Fallback] google-genai package is not installed.")
+        return None
+
+    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+    print(f"  [Gemini Fallback] Transcribing video with Gemini API (gemini-2.5-flash): {youtube_url}...")
+
+    prompt = (
+        "Generate a complete, verbatim transcript of this sermon video from start to finish. "
+        "Include all spoken words, scripture citations, and sermon content accurately. "
+        "Do not summarize, do not omit any sections, and do not include timestamps or conversational commentary. "
+        "Return only the full spoken transcript."
+    )
+
+    try:
+        client = genai.Client(api_key=gemini_key)
+        video_part = types.Part.from_uri(
+            file_uri=youtube_url,
+            mime_type="video/*",
+        )
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[video_part, prompt],
+        )
+        text = response.text
+        if text and text.strip():
+            return text.strip()
+        print("  [Gemini Fallback] Received empty transcript response from Gemini API.")
+    except Exception as e:
+        print(f"  [Gemini Fallback Error] Gemini transcription failed: {e}")
+
+    return None
+
+
 def get_transcript(video_id, week_of=None):
     """Multi-tier transcript extraction:
     Tier 0: manual transcript file (TRANSCRIPT_FILE / --transcript-file, or
             output/transcript-<week_of>.txt) - bypasses YouTube entirely
     Tier 1: youtube-transcript-api (no cookies, no bot challenges)
     Tier 2: yt-dlp fallback (with cookies if configured)
+    Tier 3: Gemini API fallback (gemini-2.5-flash audio/video transcription via google-genai)
     """
     candidates = [os.environ.get("TRANSCRIPT_FILE")]
     if week_of:
@@ -271,23 +321,33 @@ def get_transcript(video_id, week_of=None):
                 return text
             print("  (file was empty after cleanup; falling through to YouTube)")
 
-    print("  Tier 1: Trying youtube-transcript-api...")
-    text = get_transcript_via_api(video_id)
-    if text:
-        print(f"  -> Successfully extracted {len(text)} characters via youtube-transcript-api.")
-        return text
+    try:
+        print("  Tier 1: Trying youtube-transcript-api...")
+        text = get_transcript_via_api(video_id)
+        if text:
+            print(f"  -> Successfully extracted {len(text)} characters via youtube-transcript-api.")
+            return text
 
-    print("  Tier 2: Trying yt-dlp fallback...")
-    text = get_transcript_via_ytdlp(video_id)
-    if text:
-        print(f"  -> Successfully extracted {len(text)} characters via yt-dlp.")
-        return text
+        print("  Tier 2: Trying yt-dlp fallback...")
+        text = get_transcript_via_ytdlp(video_id)
+        if text:
+            print(f"  -> Successfully extracted {len(text)} characters via yt-dlp.")
+            return text
+    except Exception as e:
+        print(f"  Primary caption extraction failed with error: {e}")
+
+    print("  Tier 3: Falling back to Gemini API (gemini-2.5-flash) video transcription...")
+    gemini_text = get_transcript_via_gemini(video_id)
+    if gemini_text:
+        print(f"  -> Successfully transcribed {len(gemini_text)} characters via Gemini API fallback.")
+        return gemini_text
 
     raise RuntimeError(
-        f"Could not retrieve transcript for video {video_id}.\n"
-        f"If the sermon was just streamed, YouTube auto-captions often take 30-90 minutes to process.\n"
-        f"You can retry later, or check if captions are available on YouTube."
+        f"Could not retrieve transcript for video {video_id} across all methods "
+        f"(manual transcript, youtube-transcript-api, yt-dlp, and Gemini API fallback).\n"
+        f"Ensure captions are available or configure GEMINI_API_KEY in your environment/secrets."
     )
+
 
 
 def vtt_to_plain_text(vtt_path):
