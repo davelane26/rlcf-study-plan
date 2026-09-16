@@ -25,10 +25,11 @@ Two automated steps, no manual intervention after setup:
 3. `get_youtube_id_from_sermon_page()` reads that sermon page's embedded
    YouTube thumbnail to recover the video ID (the church's site doesn't
    expose a clean video URL directly, but the thumbnail always does).
-4. `get_transcript()` extracts the video captions via `youtube-transcript-api`
-   and `yt-dlp`. If YouTube blocks datacenter runner IPs or captions are
-   missing, it automatically falls back to transcribing the video URL using
-   the Gemini API (`gemini-2.5-flash` via `google-genai`).
+4. `get_transcript()` transcribes the sermon video directly via the
+   Gemini API (`gemini-2.5-flash` using `google-genai`). This bypasses YouTube
+   datacenter runner IP blocks, bot challenges, and caption processing delays.
+   If `GEMINI_API_KEY` is not set or fails, it falls back to extracting captions
+   via `youtube-transcript-api` and `yt-dlp`.
 5. `generate_schedule()` sends the verse + transcript to Gemini or Claude and gets
    back a structured 6-day (Mon–Sat) plan as JSON.
 6. Saves it to `output/week-YYYY-MM-DD.json` and copies it to `output/latest.json` (served over GitHub Pages via root `index.html`).
@@ -45,7 +46,7 @@ Two automated steps, no manual intervention after setup:
 ### 1. Get an API key (Free Gemini or Anthropic)
 - **Google Gemini (Recommended & Free):** Get a free API key from [Google AI Studio](https://aistudio.google.com). No credit card required.
   - Set as `GEMINI_API_KEY` in GitHub Secrets.
-  - Used for both schedule generation and cloud-based automated transcript fallback when YouTube captions are blocked or unavailable.
+  - Used for primary cloud-based video transcription (bypassing YouTube runner blocks) and study plan generation.
 - **Anthropic Claude (Alternative):** Get a key from [console.anthropic.com](https://console.anthropic.com).
   - Set as `ANTHROPIC_API_KEY` in GitHub Secrets.
 
@@ -138,10 +139,10 @@ python generate_study_plan.py
 
 ## Known limitations
 
-- **YouTube caption delays & IP blocks:** If YouTube takes hours to auto-generate
-  captions or blocks datacenter runner IPs, `generate_study_plan.py` automatically
-  falls back to transcribing the video URL using the Gemini API (`gemini-2.5-flash`)
-  via `GEMINI_API_KEY`.
+- **YouTube runner IP blocks & caption delays:** Because YouTube frequently blocks
+  datacenter runner IPs and delays auto-captions, `generate_study_plan.py` uses the
+  Gemini API (`gemini-2.5-flash` via `GEMINI_API_KEY`) as its primary video
+  transcription method, bypassing YouTube client-side restrictions entirely.
 - **Auto-generated captions can misspell names/terms**, so the resulting
   plan may occasionally reflect a transcription error.
 - **If rlcf.church changes its page layout**, the scraping functions in
