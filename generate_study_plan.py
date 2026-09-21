@@ -277,7 +277,7 @@ def load_manual_transcript(path):
 
 
 def get_transcript_via_gemini(video_id):
-    """Transcribe the YouTube video URL directly using Gemini API (gemini-2.5-flash).
+    """Transcribe the YouTube video URL directly using Gemini API.
 
     Uses the google-genai SDK with types.Part.from_uri to request a full verbatim transcript,
     bypassing YouTube IP blocks, bot challenges, or missing caption tracks.
@@ -295,7 +295,7 @@ def get_transcript_via_gemini(video_id):
         return None
 
     youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-    print(f"  [Gemini] Transcribing video with Gemini API (gemini-2.5-flash): {youtube_url}...")
+    print(f"  [Gemini] Transcribing video with Gemini API: {youtube_url}...")
 
     prompt = (
         "Generate a complete, verbatim transcript of this sermon video from start to finish. "
@@ -304,22 +304,29 @@ def get_transcript_via_gemini(video_id):
         "Return only the full spoken transcript."
     )
 
+    models_to_try = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash"]
     try:
         client = genai.Client(api_key=gemini_key)
         video_part = types.Part.from_uri(
             file_uri=youtube_url,
             mime_type="video/*",
         )
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[video_part, prompt],
-        )
-        text = response.text
-        if text and text.strip():
-            return text.strip()
-        print("  [Gemini] Received empty transcript response from Gemini API.")
+        for model_name in models_to_try:
+            try:
+                print(f"  [Gemini] Calling {model_name}...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[video_part, prompt],
+                )
+                text = response.text
+                if text and text.strip():
+                    return text.strip()
+                print(f"  [Gemini] Received empty transcript response from {model_name}.")
+            except Exception as model_err:
+                print(f"  [Gemini] Model {model_name} error: {model_err}")
+                continue
     except Exception as e:
-        print(f"  [Gemini Error] Gemini transcription failed: {e}")
+        print(f"  [Gemini Error] Gemini transcription setup failed: {e}")
 
     return None
 
@@ -328,7 +335,7 @@ def get_transcript(video_id, week_of=None):
     """Multi-tier transcript extraction:
     Tier 0: manual transcript file (TRANSCRIPT_FILE / --transcript-file, or
             output/transcript-<week_of>.txt) - bypasses YouTube entirely
-    Tier 1: Gemini API (gemini-2.5-flash direct video URL transcription via google-genai)
+    Tier 1: Gemini API (gemini-3.6-flash / gemini-3.5-flash direct video URL transcription via google-genai)
             - primary when GEMINI_API_KEY is available (bypasses datacenter runner IP blocks,
               bot challenges, and auto-caption processing delays)
     Tier 2: youtube-transcript-api (no cookies)
@@ -348,10 +355,18 @@ def get_transcript(video_id, week_of=None):
 
     # Tier 1: Gemini API (primary when GEMINI_API_KEY is configured)
     if os.environ.get("GEMINI_API_KEY"):
-        print("  Tier 1: Trying Gemini API (gemini-2.5-flash) video transcription...")
+        print("  Tier 1: Trying Gemini API video transcription...")
         gemini_text = get_transcript_via_gemini(video_id)
         if gemini_text:
             print(f"  -> Successfully transcribed {len(gemini_text)} characters via Gemini API.")
+            if week_of:
+                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
+                try:
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        f.write(gemini_text)
+                    print(f"  -> Cached transcript to {cache_path}")
+                except Exception as ce:
+                    print(f"  (Failed to cache transcript to {cache_path}: {ce})")
             return gemini_text
         print("  (Gemini API did not return transcript; falling back to caption scrapers)")
     else:
@@ -363,12 +378,26 @@ def get_transcript(video_id, week_of=None):
         text = get_transcript_via_api(video_id)
         if text:
             print(f"  -> Successfully extracted {len(text)} characters via youtube-transcript-api.")
+            if week_of:
+                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
+                try:
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                except Exception:
+                    pass
             return text
 
         print("  Tier 3: Trying yt-dlp fallback...")
         text = get_transcript_via_ytdlp(video_id)
         if text:
             print(f"  -> Successfully extracted {len(text)} characters via yt-dlp.")
+            if week_of:
+                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
+                try:
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                except Exception:
+                    pass
             return text
     except Exception as e:
         print(f"  Caption scraping failed with error: {e}")
@@ -527,8 +556,8 @@ def group_citations_by_chunk(cited_scriptures, chunks):
 
 
 def generate_with_gemini(prompt, api_key):
-    """Call Google AI Studio Gemini API (gemini-2.5-flash) using requests (no extra SDK needed)."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    """Call Google AI Studio Gemini API using requests (no extra SDK needed)."""
+    models_to_try = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]
     payload = {
         "contents": [
             {
@@ -540,13 +569,21 @@ def generate_with_gemini(prompt, api_key):
             "responseMimeType": "application/json"
         }
     }
-    resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError) as err:
-        raise RuntimeError(f"Unexpected response structure from Gemini API: {data}") from err
+    last_err = None
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        try:
+            print(f"  [Gemini plan generation] Calling {model_name}...")
+            resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            print(f"  [Gemini plan generation] {model_name} failed: {e}")
+            last_err = e
+            continue
+
+    raise RuntimeError(f"All Gemini generation models failed. Last error: {last_err}")
 
 
 def generate_with_anthropic(prompt, api_key):
@@ -696,8 +733,15 @@ exactly 6 objects in this shape, in Monday-through-Saturday order:
     if provider == "gemini":
         if not gemini_key:
             raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
-        print("  Calling Google Gemini API (gemini-2.5-flash)...")
-        raw_text = generate_with_gemini(prompt, gemini_key)
+        try:
+            print("  Calling Google Gemini API...")
+            raw_text = generate_with_gemini(prompt, gemini_key)
+        except Exception as gemini_err:
+            if anthropic_key:
+                print(f"  [Gemini generation failed: {gemini_err}. Falling back to Anthropic Claude...]")
+                raw_text = generate_with_anthropic(prompt, anthropic_key)
+            else:
+                raise
     elif provider == "anthropic":
         if not anthropic_key:
             raise RuntimeError("ANTHROPIC_API_KEY environment variable is missing.")
