@@ -310,13 +310,10 @@ def get_transcript_via_gemini(video_id, max_attempts_per_model=3, backoff_base=5
     )
 
     models_to_try = [
-        "gemini-2.5-flash",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-2.5-pro",
     ]
     try:
         client = genai.Client(api_key=gemini_key)
@@ -587,13 +584,10 @@ def group_citations_by_chunk(cited_scriptures, chunks):
 def generate_with_gemini(prompt, api_key, max_attempts_per_model=3, backoff_base=5):
     """Call Google AI Studio Gemini API using requests (no extra SDK needed)."""
     models_to_try = [
-        "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-flash-latest",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-2.5-pro",
+        "gemini-3.5-flash",
     ]
     payload = {
         "contents": [
