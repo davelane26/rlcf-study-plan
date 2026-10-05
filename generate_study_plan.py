@@ -27,10 +27,14 @@ Optional (for email delivery):
 import os
 import re
 import sys
+import time
 import json
 import shutil
 import subprocess
 from datetime import datetime, timedelta
+
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
 
 import requests
 from bs4 import BeautifulSoup
@@ -276,11 +280,12 @@ def load_manual_transcript(path):
     return re.sub(r"\s+", " ", " ".join(cleaned)).strip()
 
 
-def get_transcript_via_gemini(video_id):
+def get_transcript_via_gemini(video_id, max_attempts_per_model=3, backoff_base=5):
     """Transcribe the YouTube video URL directly using Gemini API.
 
     Uses the google-genai SDK with types.Part.from_uri to request a full verbatim transcript,
     bypassing YouTube IP blocks, bot challenges, or missing caption tracks.
+    Includes retries with exponential backoff on 503 / high demand spikes and network errors.
     """
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
@@ -304,7 +309,15 @@ def get_transcript_via_gemini(video_id):
         "Return only the full spoken transcript."
     )
 
-    models_to_try = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash"]
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-3.6-flash",
+        "gemini-flash-latest",
+        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.5-pro",
+    ]
     try:
         client = genai.Client(api_key=gemini_key)
         video_part = types.Part.from_uri(
@@ -312,19 +325,35 @@ def get_transcript_via_gemini(video_id):
             mime_type="video/*",
         )
         for model_name in models_to_try:
-            try:
-                print(f"  [Gemini] Calling {model_name}...")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[video_part, prompt],
-                )
-                text = response.text
-                if text and text.strip():
-                    return text.strip()
-                print(f"  [Gemini] Received empty transcript response from {model_name}.")
-            except Exception as model_err:
-                print(f"  [Gemini] Model {model_name} error: {model_err}")
-                continue
+            for attempt in range(1, max_attempts_per_model + 1):
+                try:
+                    if attempt > 1:
+                        print(f"  [Gemini] Calling {model_name} (retry {attempt}/{max_attempts_per_model})...")
+                    else:
+                        print(f"  [Gemini] Calling {model_name}...")
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[video_part, prompt],
+                    )
+                    text = response.text
+                    if text and text.strip():
+                        return text.strip()
+                    print(f"  [Gemini] Received empty transcript response from {model_name}.")
+                    break
+                except Exception as model_err:
+                    err_msg = str(model_err)
+                    print(f"  [Gemini] Model {model_name} error (attempt {attempt}/{max_attempts_per_model}): {err_msg}")
+                    is_transient = any(needle in err_msg.lower() for needle in [
+                        "503", "unavailable", "high demand", "429", "resource_exhausted",
+                        "server disconnected", "remotedisconnected", "connectionreset",
+                        "connection", "timeout", "timed out", "temporary"
+                    ])
+                    if is_transient and attempt < max_attempts_per_model:
+                        delay = backoff_base * (2 ** (attempt - 1))
+                        print(f"  [Gemini] Transient error on {model_name}. Waiting {delay}s before retry...")
+                        time.sleep(delay)
+                    else:
+                        break
     except Exception as e:
         print(f"  [Gemini Error] Gemini transcription setup failed: {e}")
 
@@ -555,9 +584,17 @@ def group_citations_by_chunk(cited_scriptures, chunks):
     return grouped
 
 
-def generate_with_gemini(prompt, api_key):
+def generate_with_gemini(prompt, api_key, max_attempts_per_model=3, backoff_base=5):
     """Call Google AI Studio Gemini API using requests (no extra SDK needed)."""
-    models_to_try = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-3.6-flash",
+        "gemini-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.5-pro",
+    ]
     payload = {
         "contents": [
             {
@@ -572,16 +609,30 @@ def generate_with_gemini(prompt, api_key):
     last_err = None
     for model_name in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        try:
-            print(f"  [Gemini plan generation] Calling {model_name}...")
-            resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception as e:
-            print(f"  [Gemini plan generation] {model_name} failed: {e}")
-            last_err = e
-            continue
+        for attempt in range(1, max_attempts_per_model + 1):
+            try:
+                if attempt > 1:
+                    print(f"  [Gemini plan generation] Calling {model_name} (retry {attempt}/{max_attempts_per_model})...")
+                else:
+                    print(f"  [Gemini plan generation] Calling {model_name}...")
+                resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except Exception as e:
+                err_msg = str(e)
+                print(f"  [Gemini plan generation] {model_name} failed (attempt {attempt}/{max_attempts_per_model}): {err_msg}")
+                last_err = e
+                is_transient = any(needle in err_msg.lower() for needle in [
+                    "503", "unavailable", "high demand", "429", "rate limit",
+                    "server disconnected", "connection", "timeout", "timed out", "temporary"
+                ])
+                if is_transient and attempt < max_attempts_per_model:
+                    delay = backoff_base * (2 ** (attempt - 1))
+                    print(f"  [Gemini plan generation] Waiting {delay}s before retry...")
+                    time.sleep(delay)
+                else:
+                    break
 
     raise RuntimeError(f"All Gemini generation models failed. Last error: {last_err}")
 
