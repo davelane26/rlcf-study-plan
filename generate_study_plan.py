@@ -314,9 +314,6 @@ def get_transcript_via_gemini(video_id, max_attempts_per_model=3, backoff_base=5
         "gemini-3.6-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
-        "gemini-3.8-pro",
-        "gemini-pro-latest",
-        "gemini-3.5-pro",
     ]
     try:
         client = genai.Client(api_key=gemini_key)
@@ -591,9 +588,6 @@ def generate_with_gemini(prompt, api_key, max_attempts_per_model=3, backoff_base
         "gemini-3.6-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
-        "gemini-3.8-pro",
-        "gemini-pro-latest",
-        "gemini-3.5-pro",
     ]
     payload = {
         "contents": [
