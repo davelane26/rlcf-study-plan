@@ -314,6 +314,8 @@ def get_transcript_via_gemini(video_id, max_attempts_per_model=3, backoff_base=5
         "gemini-3.6-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
+        "gemini-pro-latest",
+        "gemini-3.1-pro",
     ]
     try:
         client = genai.Client(api_key=gemini_key)
@@ -361,11 +363,10 @@ def get_transcript(video_id, week_of=None):
     """Multi-tier transcript extraction:
     Tier 0: manual transcript file (TRANSCRIPT_FILE / --transcript-file, or
             output/transcript-<week_of>.txt) - bypasses YouTube entirely
-    Tier 1: Gemini API (gemini-3.6-flash / gemini-3.5-flash direct video URL transcription via google-genai)
-            - primary when GEMINI_API_KEY is available (bypasses datacenter runner IP blocks,
-              bot challenges, and auto-caption processing delays)
-    Tier 2: youtube-transcript-api (no cookies)
-    Tier 3: yt-dlp fallback (with cookies if configured)
+    Tier 1 (Free - $0.00): youtube-transcript-api (no cookies)
+    Tier 2 (Free - $0.00): yt-dlp fallback (with cookies if configured)
+    Tier 3 (Safety Net - Flash ~$0.16, Pro emergency backup): Gemini API direct video URL transcription
+            (uses prepaid credits only if YouTube blocks the runner or captions are missing)
     """
     candidates = [os.environ.get("TRANSCRIPT_FILE")]
     if week_of:
@@ -379,9 +380,39 @@ def get_transcript(video_id, week_of=None):
                 return text
             print("  (file was empty after cleanup; falling through to next tier)")
 
-    # Tier 1: Gemini API (primary when GEMINI_API_KEY is configured)
+    # Tier 1 & 2: Try 100% FREE YouTube caption scrapers first ($0.00 cost)
+    try:
+        print("  Tier 1 (Free): Trying youtube-transcript-api...")
+        text = get_transcript_via_api(video_id)
+        if text:
+            print(f"  -> Successfully extracted {len(text)} characters via youtube-transcript-api (cost: $0.00).")
+            if week_of:
+                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
+                try:
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                except Exception:
+                    pass
+            return text
+
+        print("  Tier 2 (Free): Trying yt-dlp fallback...")
+        text = get_transcript_via_ytdlp(video_id)
+        if text:
+            print(f"  -> Successfully extracted {len(text)} characters via yt-dlp (cost: $0.00).")
+            if week_of:
+                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
+                try:
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                except Exception:
+                    pass
+            return text
+    except Exception as e:
+        print(f"  Caption scraping failed with error: {e}")
+
+    # Tier 3 & 4: Fall back to Gemini API (Flash first ~$0.16, Pro emergency backup)
     if os.environ.get("GEMINI_API_KEY"):
-        print("  Tier 1: Trying Gemini API video transcription...")
+        print("  Tier 3 (Backup): Free YouTube scrapers failed; falling back to Gemini API video transcription...")
         gemini_text = get_transcript_via_gemini(video_id)
         if gemini_text:
             print(f"  -> Successfully transcribed {len(gemini_text)} characters via Gemini API.")
@@ -394,43 +425,13 @@ def get_transcript(video_id, week_of=None):
                 except Exception as ce:
                     print(f"  (Failed to cache transcript to {cache_path}: {ce})")
             return gemini_text
-        print("  (Gemini API did not return transcript; falling back to caption scrapers)")
+        print("  (Gemini API did not return transcript)")
     else:
-        print("  Tier 1: GEMINI_API_KEY not configured, falling back to caption scrapers.")
-
-    # Tier 2 & 3: Fall back to YouTube caption extraction
-    try:
-        print("  Tier 2: Trying youtube-transcript-api...")
-        text = get_transcript_via_api(video_id)
-        if text:
-            print(f"  -> Successfully extracted {len(text)} characters via youtube-transcript-api.")
-            if week_of:
-                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
-                try:
-                    with open(cache_path, "w", encoding="utf-8") as f:
-                        f.write(text)
-                except Exception:
-                    pass
-            return text
-
-        print("  Tier 3: Trying yt-dlp fallback...")
-        text = get_transcript_via_ytdlp(video_id)
-        if text:
-            print(f"  -> Successfully extracted {len(text)} characters via yt-dlp.")
-            if week_of:
-                cache_path = os.path.join(OUTPUT_DIR, f"transcript-{week_of}.txt")
-                try:
-                    with open(cache_path, "w", encoding="utf-8") as f:
-                        f.write(text)
-                except Exception:
-                    pass
-            return text
-    except Exception as e:
-        print(f"  Caption scraping failed with error: {e}")
+        print("  GEMINI_API_KEY not configured; cannot fall back to Gemini API.")
 
     raise RuntimeError(
         f"Could not retrieve transcript for video {video_id} across all methods "
-        f"(manual transcript, Gemini API, youtube-transcript-api, and yt-dlp).\n"
+        f"(manual transcript, youtube-transcript-api, yt-dlp, and Gemini API).\n"
         f"Ensure captions are available or configure GEMINI_API_KEY in your environment/secrets."
     )
 
@@ -588,6 +589,8 @@ def generate_with_gemini(prompt, api_key, max_attempts_per_model=3, backoff_base
         "gemini-3.6-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
+        "gemini-pro-latest",
+        "gemini-3.1-pro",
     ]
     payload = {
         "contents": [
