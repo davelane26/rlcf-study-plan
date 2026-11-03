@@ -129,7 +129,22 @@ def get_latest_sermon():
     if href.startswith("/"):
         href = "https://rlcf.church" + href
 
-    return {"title": title, "url": href}
+    date_str = None
+    time_el = latest.find("time")
+    if time_el:
+        dt_attr = time_el.get("datetime")
+        if dt_attr:
+            try:
+                ts = float(dt_attr)
+                if ts > 1e11:
+                    ts /= 1000.0
+                date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+            except Exception:
+                date_str = time_el.get_text(strip=True)
+        else:
+            date_str = time_el.get_text(strip=True)
+
+    return {"title": title, "url": href, "date": date_str}
 
 
 def extract_video_id(url_or_id):
@@ -827,6 +842,21 @@ def current_week_start():
     return monday.strftime("%Y-%m-%d")
 
 
+def get_previous_week_sermon_url(current_monday_str):
+    """Read the sermon URL used in the previous week's study plan if it exists."""
+    try:
+        curr_dt = datetime.strptime(current_monday_str, "%Y-%m-%d").date()
+        prev_monday_str = (curr_dt - timedelta(days=7)).strftime("%Y-%m-%d")
+        prev_file = os.path.join(OUTPUT_DIR, f"week-{prev_monday_str}.json")
+        if os.path.exists(prev_file):
+            with open(prev_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("sermon_url")
+    except Exception as e:
+        print(f"  (Could not read previous week plan: {e})")
+    return None
+
+
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description="Generate RLCF weekly Bible study plan.")
@@ -836,6 +866,8 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true", help="Fetch sermon & captions and exit before LLM call")
     parser.add_argument("--force", action="store_true",
                         help="Regenerate even if this week's plan already exists")
+    parser.add_argument("--allow-duplicate", action="store_true",
+                        help="Allow using the same sermon URL as the previous week")
     parser.add_argument("--transcript-file", type=str,
                         help="Plain-text transcript to use instead of fetching from YouTube")
     return parser.parse_args()
@@ -879,7 +911,22 @@ def main():
         sermon = get_latest_sermon()
         sermon_title = sermon["title"]
         sermon_url = sermon["url"]
-        print(f"  -> {sermon_title} ({sermon_url})")
+        sermon_date = sermon.get("date")
+        date_info = f" [Preached: {sermon_date}]" if sermon_date else ""
+        print(f"  -> {sermon_title} ({sermon_url}){date_info}")
+
+        # Sanity check: Ensure this isn't last week's sermon being re-used
+        # because the church has not posted Sunday's new sermon yet.
+        prev_sermon_url = get_previous_week_sermon_url(date_str)
+        allow_dup = args.allow_duplicate or os.environ.get("ALLOW_DUPLICATE_SERMON", "").lower() in ("1", "true", "yes")
+        if prev_sermon_url and sermon_url and sermon_url.rstrip("/") == prev_sermon_url.rstrip("/") and not allow_dup:
+            raise RuntimeError(
+                f"The latest sermon on rlcf.church ('{sermon_title}' - {sermon_url}) is identical to "
+                f"last week's sermon. This indicates Sunday's new sermon has not been published to "
+                f"rlcf.church yet.\n"
+                f"Halting plan generation so subsequent scheduled retries can pick up the new sermon once posted.\n"
+                f"(To force using this sermon anyway, pass --allow-duplicate or set ALLOW_DUPLICATE_SERMON=1)."
+            )
 
         print("Extracting YouTube video ID...")
         video_id = get_youtube_id_from_sermon_page(sermon_url)
